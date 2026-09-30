@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALPHA HV Converter & Ion Wind Simulator</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111821; --card:#17212b; --text:#e9eef4;
+      --muted:#95a3b3; --border:#2a3949; --accent:#5aa9ff; --accent2:#79d2a6;
+      --warn:#ffcc66; --danger:#ff7b7b; --series3:#7bc3ff; --series4:#d2a8ff; --series5:#ffd580;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",Arial,sans-serif;line-height:1.5}
+    .wrap{max-width:1500px;margin:0 auto;padding:24px}
+    h1{font-size:28px;margin:0 0 6px}
+    .sub{color:var(--muted);margin-bottom:18px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 22px}
+    button{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;padding:10px 14px;cursor:pointer;font-size:14px}
+    button:hover{border-color:var(--accent)}
+    .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+    .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px}
+    .card{background:var(--card);border-radius:14px;padding:16px}
+    .section-title{font-weight:700;margin-bottom:14px}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    input[type="number"], select{
+      width:100%;background:transparent;color:var(--text);border:1px solid var(--border);
+      border-radius:9px;padding:9px 10px;font-size:16px
+    }
+    select option{background:#111821;color:var(--text)}
+    input[type="range"]{width:100%;accent-color:var(--accent)}
+    .control{margin-bottom:15px}
+    .numunit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}
+    .unit{font-size:13px;color:var(--muted)}
+    .limits{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:2px}
+    .metric{display:grid;grid-template-columns:1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+    .metric:last-child{border-bottom:none}
+    .metric .k{color:var(--muted);font-size:13px}.metric .v{font-weight:700}
+    .big{font-size:22px}
+    .status{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-size:12px}
+    .good{color:var(--accent2)} .warn{color:var(--warn)} .danger{color:var(--danger)}
+    .svgwrap{overflow-x:auto}.svgwrap svg{min-width:920px;width:100%;height:auto}
+    .note{font-size:13px;color:var(--muted)}
+    .footer{margin-top:16px;color:var(--muted);font-size:12px}
+    .tablewrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{border-bottom:1px solid var(--border);padding:9px 10px;text-align:left;white-space:nowrap}
+    th{color:var(--muted);font-weight:600}
+    .input-inline{display:flex;gap:8px;align-items:center}
+    @media(max-width:1100px){.grid4{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:1fr}}
+    @media(max-width:700px){.wrap{padding:14px}.grid4,.grid2{grid-template-columns:1fr}h1{font-size:22px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ALPHA HV Converter & Ion Wind Simulator</h1>
+  <div class="sub">Power Supply → Coil Step-up → Rectifier / Capacitor → HV OUT → EHD / Ion Wind</div>
+
+  <div class="toolbar">
+    <button id="resetBtn" type="button">초기화</button>
+    <button id="savePresetBtn" type="button">현재 조건 저장</button>
+    <button id="copyBtn" type="button">결과 복사</button>
+    <button id="csvBtn" type="button">CSV 내보내기</button>
+  </div>
+
+  <section class="panel">
+    <div class="grid4">
+      <div class="card">
+        <div class="section-title">1 · 파워서플라이</div>
+        <div class="control">
+          <div class="row"><label for="vin">전압</label><div class="input-inline"><input id="vinNum" type="number" min="0" max="15" step="0.01" value="3.70" style="width:90px"><span class="unit">V</span></div></div>
+          <input id="vin" type="range" min="0" max="15" step="0.01" value="3.70">
+          <div class="limits"><span>0.00</span><span>15.00 V</span></div>
+        </div>
+        <div class="control">
+          <div class="row"><label for="ilim">전류 제한</label><div class="input-inline"><input id="ilimNum" type="number" min="0" max="8" step="0.01" value="1.50" style="width:90px"><span class="unit">A</span></div></div>
+          <input id="ilim" type="range" min="0" max="8" step="0.01" value="1.50">
+          <div class="limits"><span>0.00</span><span>8.00 A</span></div>
+        </div>
+        <div class="metric"><span class="k">설정 기준 최대 입력 전력</span><span id="pin" class="v big">5.55 W</span></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">2 · 코일 1차 승압</div>
+        <div class="control"><label for="np">1차 권선수 Np</label><input id="np" type="number" min="1" max="1000" step="1" value="10"></div>
+        <div class="control"><label for="ns">2차 권선수 Ns</label><input id="ns" type="number" min="1" max="10000" step="10" value="1000"></div>
+        <div class="control">
+          <label for="coilEff">코일 유효 전달계수 (%)</label>
+          <input id="coilEff" type="range" min="20" max="95" step="1" value="65">
+          <div class="limits"><span>20%</span><span id="coilEffTxt">65%</span><span>95%</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">3 · 정류 · 커패시터</div>
+        <div class="control"><label for="cap">커패시터 용량 (nF)</label><input id="cap" type="number" min="0.01" max="1000" step="0.1" value="1"></div>
+        <div class="control"><label for="capRating">커패시터 정격 (kV)</label><input id="capRating" type="number" min="0.1" max="100" step="0.5" value="15"></div>
+        <div class="control">
+          <label for="stages">배전압 단수</label>
+          <input id="stages" type="range" min="1" max="8" step="1" value="4">
+          <div class="limits"><span>1</span><span><b id="stagesTxt">4</b>단</span><span>8</span></div>
+        </div>
+        <div class="control">
+          <label for="rectEff">2차단 유효 전달계수 (%)</label>
+          <input id="rectEff" type="range" min="20" max="95" step="1" value="70">
+          <div class="limits"><span>20%</span><span id="rectEffTxt">70%</span><span>95%</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">4 · EHD / 이온풍</div>
+        <div class="control"><label for="emitterType">에미터 형태</label><select id="emitterType"><option value="wire">Wire</option><option value="needle">Needle</option></select></div>
+        <div class="control">
+          <div class="row"><label for="radius">에미터 반경</label><div class="input-inline"><input id="radiusNum" type="number" min="0.01" max="5" step="0.01" value="0.10" style="width:90px"><span class="unit">mm</span></div></div>
+          <input id="radius" type="range" min="0.01" max="5" step="0.01" value="0.10">
+          <div class="limits"><span>0.01</span><span>5.00 mm</span></div>
+        </div>
+        <div class="control">
+          <div class="row"><label for="gap">전극 간격</label><div class="input-inline"><input id="gapNum" type="number" min="1" max="200" step="1" value="30" style="width:90px"><span class="unit">mm</span></div></div>
+          <input id="gap" type="range" min="1" max="200" step="1" value="30">
+          <div class="limits"><span>1</span><span>200 mm</span></div>
+        </div>
+        <div class="control">
+          <div class="row"><label for="area">유효 유동 면적</label><div class="input-inline"><input id="areaNum" type="number" min="1" max="5000" step="1" value="100" style="width:90px"><span class="unit">cm²</span></div></div>
+          <input id="area" type="range" min="1" max="5000" step="1" value="100">
+          <div class="limits"><span>1</span><span>5000 cm²</span></div>
+        </div>
+        <div class="control">
+          <label for="k">코로나 보정계수</label>
+          <input id="k" type="range" min="0.2" max="3" step="0.05" value="1">
+          <div class="limits"><span>0.20×</span><span id="kTxt">1.00×</span><span>3.00×</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="margin-bottom:12px">
+      <div><div class="section-title" style="margin:0">시스템 흐름</div><div class="note">입력값 변경 시 즉시 갱신</div></div>
+      <span id="status" class="status">계산 완료</span>
+    </div>
+    <div class="svgwrap">
+      <svg viewBox="0 0 1160 220" aria-label="파워서플라이부터 이온풍까지의 시스템 흐름">
+        <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#95a3b3"/></marker></defs>
+        <rect x="20" y="45" width="200" height="120" rx="16" fill="#17212b" stroke="#2a3949"/><text x="120" y="78" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">DC POWER SUPPLY</text><text id="svgVin" x="120" y="112" text-anchor="middle" fill="#e9eef4" font-size="22" font-weight="700">3.70 V</text><text id="svgIin" x="120" y="138" text-anchor="middle" fill="#95a3b3" font-size="13">I limit 1.50 A</text>
+        <line x1="230" y1="105" x2="285" y2="105" stroke="#95a3b3" stroke-width="2" marker-end="url(#arrow)"/>
+        <rect x="295" y="45" width="200" height="120" rx="16" fill="#17212b" stroke="#2a3949"/><text x="395" y="78" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">COIL STEP-UP</text><text id="svgV1" x="395" y="112" text-anchor="middle" fill="#e9eef4" font-size="22" font-weight="700">240.5 V</text><text id="svgRatio" x="395" y="138" text-anchor="middle" fill="#95a3b3" font-size="13">1 : 100</text>
+        <line x1="505" y1="105" x2="560" y2="105" stroke="#95a3b3" stroke-width="2" marker-end="url(#arrow)"/>
+        <rect x="570" y="45" width="200" height="120" rx="16" fill="#17212b" stroke="#2a3949"/><text x="670" y="78" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">RECTIFIER + C</text><text id="svgVout" x="670" y="112" text-anchor="middle" fill="#e9eef4" font-size="22" font-weight="700">1.35 kV</text><text id="svgStage" x="670" y="138" text-anchor="middle" fill="#95a3b3" font-size="13">4단</text>
+        <line x1="780" y1="105" x2="835" y2="105" stroke="#95a3b3" stroke-width="2" marker-end="url(#arrow)"/>
+        <rect x="845" y="45" width="280" height="120" rx="16" fill="#17212b" stroke="#2a3949"/><text x="985" y="75" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">EHD / ION WIND</text><text id="svgCorona" x="985" y="105" text-anchor="middle" fill="#e9eef4" font-size="20" font-weight="700">NO CORONA</text><text id="svgThrust" x="985" y="132" text-anchor="middle" fill="#95a3b3" font-size="13">Thrust 0.00 mN</text><text id="svgWind" x="985" y="152" text-anchor="middle" fill="#95a3b3" font-size="13">Wind 0.00 m/s</text>
+      </svg>
+    </div>
+  </section>
+
+  <div class="grid3">
+    <section class="panel">
+      <div class="section-title">전기 출력</div>
+      <div class="metric"><span class="k">권선비</span><span id="ratio" class="v"></span></div>
+      <div class="metric"><span class="k">이상적 코일 출력</span><span id="idealCoil" class="v"></span></div>
+      <div class="metric"><span class="k">손실 반영 1차 출력</span><span id="stage1" class="v"></span></div>
+      <div class="metric"><span class="k">최종 HV 출력</span><span id="vout" class="v big"></span></div>
+      <div class="metric"><span class="k">커패시터 에너지</span><span id="energy" class="v"></span></div>
+    </section>
+    <section class="panel">
+      <div class="section-title">코로나 / 이온풍 판정</div>
+      <div class="metric"><span class="k">추정 코로나 개시전압</span><span id="onset" class="v"></span></div>
+      <div class="metric"><span class="k">HV / Onset</span><span id="onsetRatio" class="v"></span></div>
+      <div class="metric"><span class="k">코로나 상태</span><span id="coronaState" class="v"></span></div>
+      <div class="metric"><span class="k">추정 코로나 전류</span><span id="coronaCurrent" class="v"></span></div>
+      <div id="ehdState" class="note" style="margin-top:12px"></div>
+    </section>
+    <section class="panel">
+      <div class="section-title">이론적 EHD 출력</div>
+      <div class="metric"><span class="k">추정 추력</span><span id="thrust" class="v big"></span></div>
+      <div class="metric"><span class="k">그램힘 환산</span><span id="gf" class="v"></span></div>
+      <div class="metric"><span class="k">등가 평균 풍속</span><span id="wind" class="v"></span></div>
+      <div class="metric"><span class="k">평균 전계</span><span id="efield" class="v"></span></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <div id="capCheck" class="panel note"></div>
+    <div id="arcCheck" class="panel note"></div>
+  </div>
+
+  <section class="panel">
+    <div class="section-title">직관적 실험 모식도</div>
+    <div class="note" style="margin-bottom:12px">현재 설정값이 실제 시스템의 어느 부분에 대응하는지 보여주는 개념도</div>
+    <div class="svgwrap">
+      <svg viewBox="0 0 1280 430" aria-label="고전압 컨버터와 이온풍 발생 모식도">
+        <defs>
+          <marker id="flowArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#95a3b3"/></marker>
+          <marker id="windArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7bc3ff"/></marker>
+        </defs>
+        <rect x="25" y="105" width="175" height="175" rx="18" fill="#17212b" stroke="#2a3949"/>
+        <text x="112" y="138" text-anchor="middle" fill="#e9eef4" font-size="16" font-weight="700">DC POWER SUPPLY</text>
+        <rect x="58" y="160" width="108" height="54" rx="8" fill="none" stroke="#2a3949"/>
+        <text id="drawVin" x="112" y="185" text-anchor="middle" fill="#e9eef4" font-size="20" font-weight="700">3.70 V</text>
+        <text id="drawIin" x="112" y="205" text-anchor="middle" fill="#95a3b3" font-size="12">1.50 A limit</text>
+        <circle cx="75" cy="245" r="7" fill="#79d2a6"/><circle cx="150" cy="245" r="7" fill="#95a3b3"/>
+        <text x="75" y="268" text-anchor="middle" fill="#95a3b3" font-size="11">+</text><text x="150" y="268" text-anchor="middle" fill="#95a3b3" font-size="11">−</text>
+        <line x1="200" y1="192" x2="260" y2="192" stroke="#95a3b3" stroke-width="3" marker-end="url(#flowArrow)"/>
+
+        <rect x="270" y="85" width="235" height="215" rx="18" fill="#17212b" stroke="#2a3949"/>
+        <text x="387" y="118" text-anchor="middle" fill="#e9eef4" font-size="16" font-weight="700">COIL / TRANSFORMER</text>
+        <line x1="387" y1="145" x2="387" y2="260" stroke="#2a3949" stroke-width="10"/>
+        <path d="M330 150 q-18 10 0 20 q18 10 0 20 q-18 10 0 20 q18 10 0 20 q-18 10 0 20" fill="none" stroke="#d2a8ff" stroke-width="4"/>
+        <path d="M445 135 q-20 7 0 14 q20 7 0 14 q-20 7 0 14 q20 7 0 14 q-20 7 0 14 q20 7 0 14 q-20 7 0 14 q20 7 0 14 q-20 7 0 14" fill="none" stroke="#ffd580" stroke-width="4"/>
+        <text id="drawNp" x="330" y="280" text-anchor="middle" fill="#95a3b3" font-size="12">Np 10</text>
+        <text id="drawNs" x="445" y="280" text-anchor="middle" fill="#95a3b3" font-size="12">Ns 1000</text>
+        <text id="drawV1" x="387" y="330" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">240.5 V</text>
+        <line x1="505" y1="192" x2="565" y2="192" stroke="#95a3b3" stroke-width="3" marker-end="url(#flowArrow)"/>
+
+        <rect x="575" y="70" width="275" height="245" rx="18" fill="#17212b" stroke="#2a3949"/>
+        <text x="712" y="104" text-anchor="middle" fill="#e9eef4" font-size="16" font-weight="700">RECTIFIER + MULTIPLIER</text>
+        <g id="multStages"></g>
+        <text id="drawCap" x="712" y="286" text-anchor="middle" fill="#95a3b3" font-size="12">C = 1.0 nF · 4 stages</text>
+        <text id="drawVout" x="712" y="340" text-anchor="middle" fill="#e9eef4" font-size="18" font-weight="700">1.35 kV</text>
+        <line x1="850" y1="192" x2="910" y2="192" stroke="#95a3b3" stroke-width="3" marker-end="url(#flowArrow)"/>
+        <text x="880" y="174" text-anchor="middle" fill="#95a3b3" font-size="11">HV OUT</text>
+
+        <rect x="920" y="55" width="335" height="285" rx="18" fill="#17212b" stroke="#2a3949"/>
+        <text x="1087" y="88" text-anchor="middle" fill="#e9eef4" font-size="16" font-weight="700">EHD THRUSTER</text>
+        <line id="emitterLine" x1="980" y1="130" x2="980" y2="265" stroke="#79d2a6" stroke-width="3"/>
+        <text x="980" y="118" text-anchor="middle" fill="#95a3b3" font-size="12">Emitter</text>
+        <line id="collectorLine" x1="1110" y1="120" x2="1110" y2="275" stroke="#e9eef4" stroke-width="10"/>
+        <text x="1110" y="298" text-anchor="middle" fill="#95a3b3" font-size="12">Collector</text>
+        <line x1="990" y1="185" x2="1095" y2="185" stroke="#7bc3ff" stroke-width="2" stroke-dasharray="7 6"/>
+        <line x1="1125" y1="150" x2="1215" y2="150" stroke="#7bc3ff" stroke-width="3" marker-end="url(#windArrow)"/>
+        <line x1="1125" y1="190" x2="1235" y2="190" stroke="#7bc3ff" stroke-width="4" marker-end="url(#windArrow)"/>
+        <line x1="1125" y1="230" x2="1215" y2="230" stroke="#7bc3ff" stroke-width="3" marker-end="url(#windArrow)"/>
+        <text id="drawGap" x="1045" y="165" text-anchor="middle" fill="#95a3b3" font-size="11">Gap 30 mm</text>
+        <text id="drawIonState" x="1087" y="325" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="700">NO CORONA</text>
+        <text id="drawWind" x="1125" y="370" text-anchor="middle" fill="#e9eef4" font-size="15" font-weight="600">Wind 0.00 m/s</text>
+        <text id="drawThrust" x="1125" y="394" text-anchor="middle" fill="#95a3b3" font-size="13">Thrust 0.00 mN</text>
+      </svg>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-title">저장된 실험 조건</div>
+    <div class="note" style="margin-bottom:10px">브라우저를 새로고침하면 초기화됩니다. CSV로 내보내면 팀 기록용으로 저장할 수 있습니다.</div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Vin</th><th>I limit</th><th>Np</th><th>Ns</th><th>C</th><th>Stages</th><th>Gap</th><th>HV Out</th><th>Corona</th><th>Thrust</th><th>Wind</th></tr></thead>
+        <tbody id="savedBody"><tr><td colspan="12" class="note">아직 저장된 조건이 없습니다.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel note">
+    <strong style="color:var(--text)">모델 가정:</strong>
+    이 앱은 실험 조건 비교용 근사 모델입니다. 실제 DC→고전압 승압에는 내부 스위칭 회로가 필요하며,
+    실제 출력은 코어 포화, 누설 인덕턴스, 절연, 부하, 습도, 전극 표면 상태 등에 따라 달라질 수 있습니다.
+    코로나·추력·풍속 값은 절대 예측값보다는 상대 비교용으로 사용하고, 실제 측정값으로 보정하는 것을 권장합니다.
+  </section>
+
+  <div class="footer">ALPHA Project · HV Converter & Ion Wind Simulator · v0.1</div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const defaults = {vin:3.7, ilim:1.5, np:10, ns:1000, coilEff:65, cap:1, capRating:15, stages:4, rectEff:70, emitterType:'wire', radius:0.10, gap:30, area:100, k:1};
+  const saved = [];
+  let lastResult = null;
+
+  const clamp = (v,a,b,f)=>Number.isFinite(v)?Math.min(b,Math.max(a,v)):f;
+  const fmtV = v => v >= 1000 ? (v/1000).toFixed(v>=10000?1:2)+' kV' : v.toFixed(v>=100?1:2)+' V';
+  const fmtE = j => j>=1 ? j.toFixed(2)+' J' : j>=0.001 ? (j*1000).toFixed(2)+' mJ' : (j*1e6).toFixed(2)+' µJ';
+
+  function sync(rangeId, numId, decimals){
+    $(rangeId).addEventListener('input',()=>{$(numId).value=Number($(rangeId).value).toFixed(decimals); update();});
+    $(numId).addEventListener('input',()=>{
+      let v=parseFloat($(numId).value);
+      if(Number.isFinite(v)){v=Math.min(parseFloat($(rangeId).max),Math.max(parseFloat($(rangeId).min),v));$(rangeId).value=v;update();}
+    });
+    $(numId).addEventListener('change',()=>{
+      let v=parseFloat($(numId).value);
+      if(!Number.isFinite(v)) v=parseFloat($(rangeId).value);
+      v=Math.min(parseFloat($(rangeId).max),Math.max(parseFloat($(rangeId).min),v));
+      $(numId).value=v.toFixed(decimals);$(rangeId).value=v;update();
+    });
+  }
+
+  function read(){
+    return {
+      vin:clamp(parseFloat($('vin').value),0,15,3.7),
+      ilim:clamp(parseFloat($('ilim').value),0,8,1.5),
+      np:clamp(parseFloat($('np').value),1,1000,10),
+      ns:clamp(parseFloat($('ns').value),1,10000,1000),
+      coilEff:clamp(parseFloat($('coilEff').value),20,95,65)/100,
+      cap:clamp(parseFloat($('cap').value),0.01,1000,1),
+      capRating:clamp(parseFloat($('capRating').value),0.1,100,15),
+      stages:Math.round(clamp(parseFloat($('stages').value),1,8,4)),
+      rectEff:clamp(parseFloat($('rectEff').value),20,95,70)/100,
+      type:$('emitterType').value,
+      radius:clamp(parseFloat($('radius').value),0.01,5,.1),
+      gap:clamp(parseFloat($('gap').value),1,200,30),
+      area:clamp(parseFloat($('area').value),1,5000,100),
+      k:clamp(parseFloat($('k').value),.2,3,1)
+    };
+  }
+
+  function drawStages(n){
+    const g=$('multStages'); g.innerHTML='';
+    const ns='http://www.w3.org/2000/svg';
+    for(let i=0;i<n;i++){
+      const x=605+i*28, y=155+(i%2)*30;
+      const l=document.createElementNS(ns,'line'); l.setAttribute('x1',x);l.setAttribute('y1',y);l.setAttribute('x2',x+20);l.setAttribute('y2',y);l.setAttribute('stroke','#e9eef4');l.setAttribute('stroke-width','2');g.appendChild(l);
+      const c1=document.createElementNS(ns,'line'); c1.setAttribute('x1',x+7);c1.setAttribute('y1',y+12);c1.setAttribute('x2',x+7);c1.setAttribute('y2',y+32);c1.setAttribute('stroke','#d2a8ff');c1.setAttribute('stroke-width','3');g.appendChild(c1);
+      const c2=document.createElementNS(ns,'line'); c2.setAttribute('x1',x+14);c2.setAttribute('y1',y+12);c2.setAttribute('x2',x+14);c2.setAttribute('y2',y+32);c2.setAttribute('stroke','#d2a8ff');c2.setAttribute('stroke-width','3');g.appendChild(c2);
+    }
+  }
+
+  function update(){
+    const s=read();
+    const ratio=s.ns/s.np;
+    const ideal=s.vin*ratio;
+    const stage1=ideal*s.coilEff;
+    const capSat=s.cap/(s.cap+0.65*s.stages);
+    const stageGain=1+(s.stages-1)*1.45*capSat;
+    const vout=stage1*stageGain*s.rectEff;
+    const pin=s.vin*s.ilim;
+    const energy=.5*(s.cap*1e-9)*vout*vout;
+    const perStageKV=(vout/Math.max(1,s.stages))/1000;
+    const capSafe=perStageKV<=s.capRating;
+
+    const r=Math.max(1e-6,s.radius/1000);
+    const d=Math.max(r*3,s.gap/1000);
+    const geom=Math.max(1.1,(2*d)/r);
+    const onsetField=(s.type==='needle'?3.2e6:3e6)*(1+.04/Math.sqrt(Math.max(r,1e-6)*1000));
+    const onset=onsetField*r*Math.log(geom);
+    const over=Math.max(0,vout-onset);
+    const coronaI=(s.type==='needle'?1.25:1)*s.k*1.8e-10*over*over/Math.max(d,.005);
+    const corona=over>0&&coronaI>1e-9;
+    const mu=2e-4;
+    const thrust=corona?coronaI*d/mu:0;
+    const rho=1.204;
+    const wind=thrust>0?Math.sqrt(2*thrust/(rho*s.area*1e-4)):0;
+    const gf=thrust/.00980665;
+    const avgField=vout/d;
+    const onsetRatio=onset>0?vout/onset:0;
+    const arcRisk=avgField>2.5e6;
+
+    $('pin').textContent=pin.toFixed(2)+' W';
+    $('coilEffTxt').textContent=Math.round(s.coilEff*100)+'%';
+    $('rectEffTxt').textContent=Math.round(s.rectEff*100)+'%';
+    $('stagesTxt').textContent=s.stages;
+    $('kTxt').textContent=s.k.toFixed(2)+'×';
+
+    $('ratio').textContent='1 : '+ratio.toFixed(1);
+    $('idealCoil').textContent=fmtV(ideal);
+    $('stage1').textContent=fmtV(stage1);
+    $('vout').textContent=fmtV(vout);
+    $('energy').textContent=fmtE(energy);
+    $('onset').textContent=fmtV(onset);
+    $('onsetRatio').textContent=onsetRatio.toFixed(2)+' ×';
+    $('coronaState').textContent=corona?'YES':'NO';
+    $('coronaCurrent').textContent=coronaI<.001?(coronaI*1e6).toFixed(1)+' µA':(coronaI*1000).toFixed(2)+' mA';
+    $('thrust').textContent=(thrust*1000).toFixed(2)+' mN';
+    $('gf').textContent=gf.toFixed(3)+' gf';
+    $('wind').textContent=wind.toFixed(2)+' m/s';
+    $('efield').textContent=(avgField/1e6).toFixed(2)+' MV/m';
+
+    const stateText=arcRisk?'⚠ 높은 평균 전계 — 아크 위험 구간':corona?'✓ 코로나 방전 조건 충족 · 이온풍 가능':'코로나 개시전압 미만 · 이온풍 조건 미충족';
+    $('ehdState').textContent=stateText;
+    $('capCheck').textContent=capSafe?'✓ 커패시터: 단계당 추정 전압이 설정 정격 이내':'⚠ 커패시터: 단계당 추정 전압이 설정 정격 초과';
+    $('arcCheck').textContent=arcRisk?'⚠ 평균 전계가 높은 영역입니다. 실제 아크 여부는 형상과 환경에 따라 달라집니다.':corona?'✓ 코로나 영역 추정: 이온풍 발생 가능':'○ 코로나 개시 이전 영역 추정';
+    $('status').textContent=arcRisk?'아크 위험 추정':corona?'ION WIND':'코로나 미발생';
+    $('status').className='status '+(arcRisk?'danger':corona?'good':'');
+
+    $('svgVin').textContent=s.vin.toFixed(2)+' V';
+    $('svgIin').textContent='I limit '+s.ilim.toFixed(2)+' A';
+    $('svgV1').textContent=fmtV(stage1);
+    $('svgRatio').textContent='1 : '+ratio.toFixed(1);
+    $('svgVout').textContent=fmtV(vout);
+    $('svgStage').textContent=s.stages+'단';
+    $('svgCorona').textContent=arcRisk?'ARC RISK':corona?'ION WIND':'NO CORONA';
+    $('svgThrust').textContent='Thrust '+(thrust*1000).toFixed(2)+' mN';
+    $('svgWind').textContent='Wind '+wind.toFixed(2)+' m/s';
+
+    $('drawVin').textContent=s.vin.toFixed(2)+' V';
+    $('drawIin').textContent=s.ilim.toFixed(2)+' A limit';
+    $('drawNp').textContent='Np '+Math.round(s.np);
+    $('drawNs').textContent='Ns '+Math.round(s.ns);
+    $('drawV1').textContent=fmtV(stage1);
+    $('drawCap').textContent='C = '+s.cap.toFixed(2)+' nF · '+s.stages+' stages';
+    $('drawVout').textContent=fmtV(vout);
+    $('drawGap').textContent='Gap '+Math.round(s.gap)+' mm';
+    $('drawIonState').textContent=arcRisk?'ARC RISK':corona?'ION WIND ACTIVE':'NO CORONA';
+    $('drawWind').textContent='Wind '+wind.toFixed(2)+' m/s';
+    $('drawThrust').textContent='Thrust '+(thrust*1000).toFixed(2)+' mN';
+    $('emitterLine').setAttribute('stroke-width',Math.max(1.5,Math.min(9,s.radius*1.8)));
+    const cx=1020+Math.min(150,s.gap*.75); $('collectorLine').setAttribute('x1',cx);$('collectorLine').setAttribute('x2',cx);
+    drawStages(s.stages);
+
+    lastResult={...s,ratio,ideal,stage1,vout,pin,energy,onset,onsetRatio,coronaI,corona,thrust,gf,wind,avgField,arcRisk,capSafe};
+  }
+
+  function renderSaved(){
+    const body=$('savedBody'); body.innerHTML='';
+    if(saved.length===0){body.innerHTML='<tr><td colspan="12" class="note">아직 저장된 조건이 없습니다.</td></tr>';return;}
+    saved.forEach((r,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${i+1}</td><td>${r.vin.toFixed(2)} V</td><td>${r.ilim.toFixed(2)} A</td><td>${Math.round(r.np)}</td><td>${Math.round(r.ns)}</td><td>${r.cap.toFixed(2)} nF</td><td>${r.stages}</td><td>${Math.round(r.gap)} mm</td><td>${fmtV(r.vout)}</td><td>${r.corona?'YES':'NO'}</td><td>${(r.thrust*1000).toFixed(2)} mN</td><td>${r.wind.toFixed(2)} m/s</td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  function resultText(){
+    if(!lastResult) return '';
+    const r=lastResult;
+    return [
+      'ALPHA HV Converter & Ion Wind Simulator',
+      `Vin: ${r.vin.toFixed(2)} V`,
+      `Current Limit: ${r.ilim.toFixed(2)} A`,
+      `Np / Ns: ${Math.round(r.np)} / ${Math.round(r.ns)}`,
+      `Capacitance: ${r.cap.toFixed(2)} nF`,
+      `Stages: ${r.stages}`,
+      `Gap: ${Math.round(r.gap)} mm`,
+      `HV Output: ${fmtV(r.vout)}`,
+      `Corona: ${r.corona?'YES':'NO'}`,
+      `Corona Current: ${r.coronaI<.001?(r.coronaI*1e6).toFixed(1)+' µA':(r.coronaI*1000).toFixed(2)+' mA'}`,
+      `Thrust: ${(r.thrust*1000).toFixed(2)} mN`,
+      `Wind: ${r.wind.toFixed(2)} m/s`,
+      `Arc Risk Estimate: ${r.arcRisk?'YES':'NO'}`
+    ].join('\n');
+  }
+
+  sync('vin','vinNum',2); sync('ilim','ilimNum',2); sync('radius','radiusNum',2); sync('gap','gapNum',0); sync('area','areaNum',0);
+  ['np','ns','coilEff','cap','capRating','stages','rectEff','emitterType','k'].forEach(id=>{$(id).addEventListener('input',update);$(id).addEventListener('change',update);});
+
+  $('resetBtn').addEventListener('click',()=>{
+    Object.entries(defaults).forEach(([id,v])=>{const el=$(id);if(el)el.value=v;});
+    $('vinNum').value='3.70';$('ilimNum').value='1.50';$('radiusNum').value='0.10';$('gapNum').value='30';$('areaNum').value='100';update();
+  });
+
+  $('savePresetBtn').addEventListener('click',()=>{
+    if(lastResult){saved.push({...lastResult});renderSaved();}
+  });
+
+  $('copyBtn').addEventListener('click',async()=>{
+    const txt=resultText();
+    try{await navigator.clipboard.writeText(txt);$('copyBtn').textContent='복사 완료';setTimeout(()=>$('copyBtn').textContent='결과 복사',1200);}
+    catch(e){alert(txt);}
+  });
+
+  $('csvBtn').addEventListener('click',()=>{
+    const rows = saved.length ? saved : (lastResult?[lastResult]:[]);
+    if(!rows.length) return;
+    const header=['No','Vin_V','CurrentLimit_A','Np','Ns','CoilEff','Cap_nF','CapRating_kV','Stages','RectEff','EmitterType','EmitterRadius_mm','Gap_mm','Area_cm2','CoronaCoeff','HVOut_V','Corona','CoronaCurrent_A','Thrust_N','Wind_mps','AvgField_Vpm','ArcRisk'];
+    const csv=[header.join(',')].concat(rows.map((r,i)=>[
+      i+1,r.vin,r.ilim,r.np,r.ns,r.coilEff,r.cap,r.capRating,r.stages,r.rectEff,r.type,r.radius,r.gap,r.area,r.k,r.vout,r.corona,r.coronaI,r.thrust,r.wind,r.avgField,r.arcRisk
+    ].join(','))).join('\n');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='alpha_hv_ionwind_results.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),500);
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>
