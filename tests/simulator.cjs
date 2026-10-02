@@ -57,7 +57,8 @@ test('HV chain, zero power, capacitor stress and saved exports', async () => {
     assert.equal(rows[0][header.indexOf('CapCount')],'4');
     assert.equal(rows[0][header.indexOf('CWStages')],'2');
     assert.equal(Number(rows[0][header.indexOf('HVOut_V')]),6734);
-    assert(Number(rows[0][header.indexOf('CoronaCurrent_A')])*6734<=5.55+1e-9);
+    assert.equal(rows[0][header.indexOf('CoronaCurrent_A')],'');
+    assert.equal(rows[0][header.indexOf('EHDStatus')],'power-limited');
     for (const [id,v] of [['np',0],['ns',-1],['cap',0],['capRating',0]]) await set(id,v);
     assert.doesNotMatch(await page.locator('body').innerText(),/NaN|Infinity/);
     assert.deepEqual(errors,[]);

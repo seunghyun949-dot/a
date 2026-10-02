@@ -261,7 +261,7 @@
       <div class="control"><label for="searchHVMax">모델 HV 상한 (kV)</label><input id="searchHVMax" type="number" min="0" max="1000" step="0.1" value="10"></div>
       <div class="control"><label for="searchFieldMax">모델 평균 전계 상한 (MV/m)</label><input id="searchFieldMax" type="number" min="0" max="2.5" step="0.01" value="0.5"></div>
     </div>
-    <label><input id="includeLimited" type="checkbox"> 전력 제한 후보도 비교에 포함 (풍속은 낙관적 상한 · 실물 추천 아님)</label>
+    <p class="note">전력 상한에 걸리는 조건은 부하 전압·전류가 미확정이므로 풍속 순위에서 항상 제외합니다.</p>
     <p class="note">기본 범위와 상한은 비교용 예시이며 부품의 허용값이 아닙니다. 코로나 미발생, 정격 초과, 모델 아크 경고, 간격 ≤ 반경의 3배인 후보는 제외합니다. 이 필터를 통과해도 안전을 보증하지 않습니다.</p>
     <button id="exploreBtn" type="button">예상 풍속 높은 조건 찾기</button>
     <p id="exploreSummary" class="note" role="status">범위를 확인한 뒤 탐색하세요.</p>
@@ -288,12 +288,12 @@
     Vpk는 대칭 AC 등가 피크(입력 전압 스윙의 절반)로 가정하며, 실제 비대칭 플라이백 파형에는 그대로 적용되지 않을 수 있습니다.
     C 2개와 D 2개를 한 단으로 하는 반파 CW 연결을 가정합니다. 단순 직렬·병렬 연결에는 이 단수 규칙을 적용하지 않습니다.
     주파수·듀티·리플·부하 전압강하는 계산하지 않으므로 용량 C는 현재 저장 에너지 계산에만 반영됩니다.
-    코로나 전류는 입력 전력 한도로 제한한 비교값이며, 제한이 걸리면 HV와 전류를 동시에 유지할 수 있다는 뜻이 아닙니다.
+    요구 전력이 입력 전력 상한을 넘으면 코로나 상태를 판정 보류하고 전류·추력·풍속은 계산 불가로 표시합니다. 상한 전류를 실제 전류로 대입하지 않습니다. 부하 전압·전류 실측값 또는 전원 부하 특성 없이는 해당 조건의 실제 풍속을 예측할 수 없습니다. 전력 상한 미도달 값도 미보정 경험식의 비교값입니다.
     <p class="danger"><strong>고전압 주의:</strong> 출력과 커패시터 잔류 전하는 감전·아크 위험이 있습니다. 이 화면의 정격·전계 표시는 안전 판정이 아닙니다.
     입력 0–15 V 조절 범위는 실제 모듈의 허용 입력 범위를 뜻하지 않습니다. 실물 사양과 절연·방전 상태를 별도로 확인해야 합니다.</p>
   </section>
 
-  <div class="footer">ALPHA Project · HV Converter & Ion Wind Simulator · v0.2 · 추정 모델</div>
+  <div class="footer">ALPHA Project · HV Converter & Ion Wind Simulator · v0.3 · 전력 상한 결과 판정 보류</div>
 </div>
 
 <script>
@@ -310,6 +310,11 @@
     return (Math.round((scaled+Number.EPSILON)*10**digits)/10**digits).toFixed(digits)+(v>=1000?' kV':' V');
   };
   const fmtE = j => j>=1 ? j.toFixed(2)+' J' : j>=0.001 ? (j*1000).toFixed(2)+' mJ' : (j*1e6).toFixed(2)+' µJ';
+
+  const fmtWind = v => v===null?'계산 불가':v.toFixed(2)+' m/s';
+  const fmtThrust = v => v===null?'계산 불가':(v*1000).toFixed(2)+' mN';
+  const fmtCurrent = v => v===null?'계산 불가':v<.001?(v*1e6).toFixed(1)+' µA':(v*1000).toFixed(2)+' mA';
+  const fmtCorona = v => v===null?'판정 보류':v?'YES':'NO';
 
   function sync(rangeId, numId, decimals){
     $(rangeId).addEventListener('input',()=>{$(numId).value=Number($(rangeId).value).toFixed(decimals); update();});
@@ -382,18 +387,20 @@
     const over=Math.max(0,vout-onset);
     const rawCoronaI=(s.type==='needle'?1.25:1)*s.k*1.8e-10*over*over/Math.max(d,.005);
     const powerCurrentLimit=vout>0?pin/vout:0;
-    const coronaI=Math.min(rawCoronaI,powerCurrentLimit);
     const powerLimited=rawCoronaI>powerCurrentLimit;
-    const corona=over>0&&coronaI>1e-9;
+    // A power ceiling is not a solved current at this voltage. Unknown is not zero.
+    const coronaI=powerLimited?null:rawCoronaI;
+    const corona=powerLimited?null:over>0&&coronaI>1e-9;
+    const ehdStatus=powerLimited?'power-limited':corona?'estimate':'no-corona';
     const mu=2e-4;
-    const thrust=corona?coronaI*d/mu:0;
+    const thrust=powerLimited?null:corona?coronaI*d/mu:0;
     const rho=1.204;
-    const wind=thrust>0?Math.sqrt(2*thrust/(rho*s.area*1e-4)):0;
-    const gf=thrust/.00980665;
+    const wind=powerLimited?null:thrust>0?Math.sqrt(2*thrust/(rho*s.area*1e-4)):0;
+    const gf=thrust===null?null:thrust/.00980665;
     const avgField=vout/d;
     const onsetRatio=onset>0?vout/onset:0;
     const arcRisk=avgField>2.5e6;
-    return {...s,ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe};
+    return {...s,ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,rawCoronaI,powerCurrentLimit,ehdStatus,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe};
   }
 
   function update(){
@@ -419,19 +426,19 @@
     $('energy').textContent=fmtE(energy);
     $('onset').textContent=fmtV(onset);
     $('onsetRatio').textContent=onsetRatio.toFixed(2)+' ×';
-    $('coronaState').textContent=corona?'YES':'NO';
-    $('coronaCurrent').textContent=coronaI<.001?(coronaI*1e6).toFixed(1)+' µA':(coronaI*1000).toFixed(2)+' mA';
-    $('thrust').textContent=(thrust*1000).toFixed(2)+' mN';
-    $('gf').textContent=gf.toFixed(3)+' gf';
-    $('wind').textContent=wind.toFixed(2)+' m/s';
+    $('coronaState').textContent=fmtCorona(corona);
+    $('coronaCurrent').textContent=fmtCurrent(coronaI);
+    $('thrust').textContent=fmtThrust(thrust);
+    $('gf').textContent=gf===null?'계산 불가':gf.toFixed(3)+' gf';
+    $('wind').textContent=fmtWind(wind);
     $('efield').textContent=(avgField/1e6).toFixed(2)+' MV/m';
 
-    const stateText=arcRisk?'⚠ 높은 평균 전계 — 아크 위험 구간':corona?'✓ 코로나 방전 조건 충족 · 이온풍 가능':'코로나 개시전압 미만 · 이온풍 조건 미충족';
-    $('ehdState').textContent=stateText+(powerLimited?' · 입력 전력 상한 적용: 실제 HV는 부하로 떨어질 수 있음':'');
+    const stateText=powerLimited?'전력 상한 초과 · 부하 상태 미해석: 전류·추력·풍속 계산 불가. 부하 전압·전류 실측값 또는 전원 부하 특성이 필요합니다.':arcRisk?'⚠ 높은 평균 전계 — 아크 위험 구간':corona?'✓ 코로나 방전 조건 충족 · 이온풍 가능':'코로나 개시전압 미만 · 이온풍 조건 미충족';
+    $('ehdState').textContent=stateText;
     $('capCheck').textContent=(capSafe?'커패시터: 이상적 최대 소자 전압이 설정 정격 이내':'⚠ 커패시터: 이상적 최대 소자 전압이 설정 정격 초과')+' · 2Vpk = '+fmtV(capStress)+' / 정격 '+s.capRating+' kV. 과도전압·리플·디레이팅 미포함. 안전 판정 아님.';
-    $('arcCheck').textContent=arcRisk?'⚠ 평균 전계가 높은 영역입니다. 실제 아크 여부는 형상과 환경에 따라 달라집니다.':corona?'✓ 코로나 영역 추정: 이온풍 발생 가능':'○ 코로나 개시 이전 영역 추정';
-    $('status').textContent=arcRisk?'아크 위험 추정':corona?'ION WIND':'코로나 미발생';
-    $('status').className='status '+(arcRisk?'danger':corona?'good':'');
+    $('arcCheck').textContent=powerLimited?'부하 전압 미확정: 코로나·아크 여부 판정 보류. 표시 전계는 부하해석 전 전압 기준입니다.':arcRisk?'⚠ 평균 전계가 높은 영역입니다. 실제 아크 여부는 형상과 환경에 따라 달라집니다.':corona?'✓ 코로나 영역 추정: 이온풍 발생 가능':'○ 코로나 개시 이전 영역 추정';
+    $('status').textContent=powerLimited?'부하해석 필요':arcRisk?'아크 위험 추정':corona?'ION WIND':'코로나 미발생';
+    $('status').className='status '+(powerLimited?'warn':arcRisk?'danger':corona?'good':'');
 
     $('svgVin').textContent=s.vin.toFixed(2)+' V';
     $('svgIin').textContent='I limit '+s.ilim.toFixed(2)+' A';
@@ -439,9 +446,9 @@
     $('svgRatio').textContent='1:'+ratio.toFixed(1)+' · Ksw '+s.ksw.toFixed(1);
     $('svgVout').textContent=fmtV(vout);
     $('svgStage').textContent='C '+s.capCount+'개 · CW '+s.stages+'단';
-    $('svgCorona').textContent=arcRisk?'ARC RISK':corona?'ION WIND':'NO CORONA';
-    $('svgThrust').textContent='Thrust '+(thrust*1000).toFixed(2)+' mN';
-    $('svgWind').textContent='Wind '+wind.toFixed(2)+' m/s';
+    $('svgCorona').textContent=powerLimited?'LOAD UNRESOLVED':arcRisk?'ARC RISK':corona?'ION WIND':'NO CORONA';
+    $('svgThrust').textContent='Thrust '+fmtThrust(thrust);
+    $('svgWind').textContent='Wind '+fmtWind(wind);
 
     $('drawVin').textContent=s.vin.toFixed(2)+' V';
     $('drawIin').textContent=s.ilim.toFixed(2)+' A limit';
@@ -451,9 +458,9 @@
     $('drawCap').textContent=s.cap.toFixed(2)+' nF × '+s.capCount+'개 · CW '+s.stages+'단';
     $('drawVout').textContent=fmtV(vout);
     $('drawGap').textContent='Gap '+Math.round(s.gap)+' mm';
-    $('drawIonState').textContent=arcRisk?'ARC RISK':corona?'ION WIND ACTIVE':'NO CORONA';
-    $('drawWind').textContent='Wind '+wind.toFixed(2)+' m/s';
-    $('drawThrust').textContent='Thrust '+(thrust*1000).toFixed(2)+' mN';
+    $('drawIonState').textContent=powerLimited?'LOAD UNRESOLVED':arcRisk?'ARC RISK':corona?'ION WIND ACTIVE':'NO CORONA';
+    $('drawWind').textContent='Wind '+fmtWind(wind);
+    $('drawThrust').textContent='Thrust '+fmtThrust(thrust);
     $('emitterLine').setAttribute('stroke-width',Math.max(1.5,Math.min(9,s.radius*1.8)));
     const cx=1020+Math.min(150,s.gap*.75); $('collectorLine').setAttribute('x1',cx);$('collectorLine').setAttribute('x2',cx);
     drawStages(s.stages);
@@ -483,7 +490,6 @@
         return [...new Set(values)].sort((a,b)=>a-b);
       });
       const hvMax=get('searchHVMax')*1000, fieldMax=get('searchFieldMax')*1e6;
-      const includeLimited=$('includeLimited').checked;
       const candidates=[];
       const excluded={geometry:0,corona:0,limits:0,power:0};
       let total=0;
@@ -491,18 +497,18 @@
         total++;
         if(gap<=3*radius){excluded.geometry++;continue;}
         const r=calculate({...base,vin,gap,radius});
+        if(r.powerLimited){excluded.power++;continue;}
         if(!r.corona){excluded.corona++;continue;}
         if(!r.capSafe||r.arcRisk||r.vout>hvMax||r.avgField>fieldMax){excluded.limits++;continue;}
-        if(r.powerLimited&&!includeLimited){excluded.power++;continue;}
         candidates.push(r);
       }
       candidates.sort((a,b)=>b.wind-a.wind||a.vin-b.vin||a.gap-b.gap||a.radius-b.radius);
-      $('exploreSummary').textContent=`${total}개 조합 평가 · 비교 후보 ${candidates.length}개 · 제외: 형상 ${excluded.geometry}, 코로나 없음 ${excluded.corona}, 전압·전계·정격 ${excluded.limits}, 전력 제한 ${excluded.power}. 면적 ${base.area} cm² 고정 · 현재 ${baseline.wind.toFixed(2)} m/s${baseline.powerLimited?' (전력 제한 상한)':''}. 격자 탐색 상위 5개이며 전역 최적값은 아닙니다. 경계값이 반복되면 모델의 단조 경향일 수 있습니다.`;
+      $('exploreSummary').textContent=`${total}개 조합 평가 · 비교 후보 ${candidates.length}개 · 제외: 형상 ${excluded.geometry}, 코로나 없음 ${excluded.corona}, 전압·전계·정격 ${excluded.limits}, 전력 제한 ${excluded.power}. 면적 ${base.area} cm² 고정 · 현재 ${fmtWind(baseline.wind)}. 격자 탐색 상위 5개이며 전역 최적값은 아닙니다. 경계값이 반복되면 모델의 단조 경향일 수 있습니다.`;
       candidates.slice(0,5).forEach((r,i)=>{
         const tr=document.createElement('tr');
         tr.dataset.wind=r.wind;
-        const delta=r.wind-baseline.wind;
-        const fields=[i+1,r.vin.toFixed(2),r.gap,r.radius.toFixed(2),fmtV(r.vout),r.wind.toFixed(2)+' m/s',(delta>=0?'+':'')+delta.toFixed(2)+' m/s',r.powerLimited?'전력 제한 상한':'전력 제한 미도달'];
+        const delta=baseline.wind===null?null:r.wind-baseline.wind;
+        const fields=[i+1,r.vin.toFixed(2),r.gap,r.radius.toFixed(2),fmtV(r.vout),fmtWind(r.wind),delta===null?'비교 불가':(delta>=0?'+':'')+delta.toFixed(2)+' m/s',r.powerLimited?'전력 제한 상한':'전력 제한 미도달'];
         fields.forEach(text=>{const td=document.createElement('td');td.textContent=text;tr.appendChild(td);});
         const cell=document.createElement('td'),button=document.createElement('button');
         button.type='button';button.textContent='화면에 적용';
@@ -526,7 +532,7 @@
     if(saved.length===0){body.innerHTML='<tr><td colspan="14" class="note">아직 저장된 조건이 없습니다.</td></tr>';return;}
     saved.forEach((r,i)=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${i+1}</td><td>${r.vin.toFixed(2)} V</td><td>${r.ilim.toFixed(2)} A</td><td>${Math.round(r.np)}</td><td>${Math.round(r.ns)}</td><td>${r.ksw.toFixed(1)}×</td><td>${r.cap.toFixed(2)} nF</td><td>${r.capCount}</td><td>${r.stages}</td><td>${Math.round(r.gap)} mm</td><td>${fmtV(r.vout)}</td><td>${r.corona?'YES':'NO'}</td><td>${(r.thrust*1000).toFixed(2)} mN</td><td>${r.wind.toFixed(2)} m/s</td>`;
+      tr.innerHTML=`<td>${i+1}</td><td>${r.vin.toFixed(2)} V</td><td>${r.ilim.toFixed(2)} A</td><td>${Math.round(r.np)}</td><td>${Math.round(r.ns)}</td><td>${r.ksw.toFixed(1)}×</td><td>${r.cap.toFixed(2)} nF</td><td>${r.capCount}</td><td>${r.stages}</td><td>${Math.round(r.gap)} mm</td><td>${fmtV(r.vout)}</td><td>${fmtCorona(r.corona)}</td><td>${fmtThrust(r.thrust)}</td><td>${fmtWind(r.wind)}</td>`;
       body.appendChild(tr);
     });
   }
@@ -550,10 +556,12 @@
       `CW stages (C count / 2): ${r.stages}`,
       `Gap: ${Math.round(r.gap)} mm`,
       `HV Output (calibrated estimate, load sag not solved): ${fmtV(r.vout)}`,
-      `Corona: ${r.corona?'YES':'NO'}`,
-      `Corona Current: ${r.coronaI<.001?(r.coronaI*1e6).toFixed(1)+' µA':(r.coronaI*1000).toFixed(2)+' mA'}`,
-      `Thrust: ${(r.thrust*1000).toFixed(2)} mN`,
-      `Wind: ${r.wind.toFixed(2)} m/s`,
+      `Corona: ${fmtCorona(r.corona)}`,
+      `Corona Current: ${fmtCurrent(r.coronaI)}`,
+      `Thrust: ${fmtThrust(r.thrust)}`,
+      `Wind: ${fmtWind(r.wind)}`,
+      `EHD Status: ${r.ehdStatus}`,
+      `Power current ceiling at assumed HV (not predicted current): ${fmtCurrent(r.powerCurrentLimit)}`,
       `Input power cap active: ${r.powerLimited?'YES':'NO'}`,
       `Arc Risk Estimate: ${r.arcRisk?'YES':'NO'}`,
       'Estimate only. HV and stored charge are hazardous; this is not a safety assessment.'
@@ -584,9 +592,9 @@
   $('csvBtn').addEventListener('click',()=>{
     const rows = saved.length ? saved : (lastResult?[lastResult]:[]);
     if(!rows.length) return;
-    const header=['No','Vin_V','CurrentLimit_A','Np','Ns','Ksw_estimate','CoilVoltageFactor_estimate','Cap_nF','CapRating_kV','CapCount','CWStages','CWVoltageFactor_estimate','EmitterType','EmitterRadius_mm','Gap_mm','Area_cm2','CoronaCoeff','CoilPeak_V','CWIdealNoLoad_V','EffectiveHVGain','HVOut_V','Corona','CoronaCurrent_A','Thrust_N','Wind_mps','AvgField_Vpm','ArcRisk','InputPowerLimited','CapMaxIdeal_V','CWStoredEnergyIdeal_J'];
+    const header=['No','Vin_V','CurrentLimit_A','Np','Ns','Ksw_estimate','CoilVoltageFactor_estimate','Cap_nF','CapRating_kV','CapCount','CWStages','CWVoltageFactor_estimate','EmitterType','EmitterRadius_mm','Gap_mm','Area_cm2','CoronaCoeff','CoilPeak_V','CWIdealNoLoad_V','EffectiveHVGain','HVOut_V','Corona','CoronaCurrent_A','Thrust_N','Wind_mps','AvgField_Vpm','ArcRisk','InputPowerLimited','CapMaxIdeal_V','CWStoredEnergyIdeal_J','EHDStatus','PowerCurrentLimit_A'];
     const csv=[header.join(',')].concat(rows.map((r,i)=>[
-      i+1,r.vin,r.ilim,r.np,r.ns,r.ksw,r.coilEff,r.cap,r.capRating,r.capCount,r.stages,r.rectEff,r.type,r.radius,r.gap,r.area,r.k,r.stage1,r.cwIdeal,r.effectiveGain,r.vout,r.corona,r.coronaI,r.thrust,r.wind,r.avgField,r.arcRisk,r.powerLimited,r.capStress,r.energy
+      i+1,r.vin,r.ilim,r.np,r.ns,r.ksw,r.coilEff,r.cap,r.capRating,r.capCount,r.stages,r.rectEff,r.type,r.radius,r.gap,r.area,r.k,r.stage1,r.cwIdeal,r.effectiveGain,r.vout,r.corona,r.coronaI,r.thrust,r.wind,r.avgField,r.arcRisk,r.powerLimited,r.capStress,r.energy,r.ehdStatus,r.powerCurrentLimit
     ].join(','))).join('\n');
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='alpha_hv_ionwind_results.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),500);

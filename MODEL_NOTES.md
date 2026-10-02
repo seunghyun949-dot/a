@@ -1,4 +1,4 @@
-# MODEL NOTES · v0.2
+# MODEL NOTES · v0.3
 
 ## HV chain and assumptions
 
@@ -42,10 +42,16 @@ Pin,max = Vin × Ilimit. Zero voltage or zero current limit produces zero sustai
 This is steady state: stored residual charge on a real disconnected circuit does not disappear.
 The original empirical corona onset and current law are retained:
 Iraw ∝ (VHV − Vonset)² / gap, with zero current below onset.
-Iestimate = min(Iraw, Pin,max / VHV), or zero if VHV is zero.
-This optimistic 100%-power upper bound prevents estimated output electrical power exceeding input capacity.
-It does not model actual input current or losses or establish a self-consistent loaded operating point.
-The app flags this bound when active. Real loaded HV and current may both be lower.
+The ceiling Pin,max / VHV is only a feasibility check, not a predicted current.
+If Iraw exceeds it, corona, current, thrust, gram-force and wind are unknown (null),
+displayed as 판정 보류 / 계산 불가. We do not insert the ceiling into F = I d / μ:
+doing so would hold current fixed and manufacture an increasing wind curve with gap.
+Zero input power remains zero output, distinct from unknown. Below the ceiling,
+the original uncalibrated empirical estimates remain; passing the check does not
+establish a self-consistent loaded operating point or account for conversion losses.
+A loaded prediction requires measured supply/load characteristics or loaded HV/current.
+CSV leaves unknown numeric fields blank and adds EHDStatus and PowerCurrentLimit_A.
+The latter is a ceiling at assumed HV, never a measured or predicted output current.
 F ≈ I d / μ and v ≈ sqrt(2F / (ρA)), with μ = 2e-4 and ρ = 1.204, remain comparison estimates.
 The average-field arc flag is coarse; its absence does not establish safety.
 
@@ -89,12 +95,12 @@ Ties prefer lower input voltage, then gap, then radius for deterministic present
 Area and all other parameters remain fixed: reducing area or tuning a calibration coefficient cannot
 artificially win this search. Candidates without corona, with gap <= 3 × radius, capacitor-rating
 exceedance, the existing arc flag, or user-entered HV/average-field limit exceedance are excluded.
-Power-limited candidates are excluded unless explicitly included as optimistic upper-bound comparisons.
-Exclusion counts follow that order and each excluded candidate is counted only once.
+Power-limited candidates are always excluded. Exclusion counts check geometry,
+then power limitation, then corona, then voltage/field/rating; each is counted once.
 The limits are illustrative numerical filters, not a physical safety envelope or module specifications.
 
 The top five are comparisons, not experimental instructions. The delta is against current displayed
-wind; when that baseline is power-limited its upper-bound status is shown. A negative delta is possible.
+wind; when that baseline is power-limited the delta is unavailable (비교 불가). A negative delta is possible.
 No passing candidates is a valid result. The explorer never relaxes the limits automatically.
 Changes to simulator settings or search inputs invalidate prior results. Applying a result updates only
 the three searched controls, and the normal save/copy/CSV workflow records the resulting configuration.
