@@ -57,7 +57,7 @@
 <body>
 <div class="wrap">
   <h1>ALPHA HV Converter & Ion Wind Simulator</h1>
-  <div class="sub">Power Supply → Coil Step-up → Rectifier / Capacitor → HV OUT → EHD / Ion Wind</div>
+  <div class="sub">Power Supply → Switching / Transformer → CW Multiplier → Estimated HV OUT → EHD / Ion Wind</div>
 
   <div class="toolbar">
     <button id="resetBtn" type="button">초기화</button>
@@ -84,11 +84,16 @@
       </div>
 
       <div class="card">
-        <div class="section-title">2 · 코일 1차 승압</div>
-        <div class="control"><label for="np">1차 권선수 Np</label><input id="np" type="number" min="1" max="1000" step="1" value="10"></div>
-        <div class="control"><label for="ns">2차 권선수 Ns</label><input id="ns" type="number" min="1" max="10000" step="10" value="1000"></div>
+        <div class="section-title">2 · 스위칭 / 코일 승압</div>
+        <div class="control"><label for="np">1차 권선수 Np (초기값은 가정)</label><input id="np" type="number" min="1" max="1000" step="1" value="1"></div>
+        <div class="control"><label for="ns">2차 권선수 Ns (초기값은 가정)</label><input id="ns" type="number" min="1" max="10000" step="1" value="100"></div>
         <div class="control">
-          <label for="coilEff">코일 유효 전달계수 (%)</label>
+          <label for="ksw">스위칭 / 플라이백 계수 Ksw (추정)</label>
+          <input id="ksw" type="range" min="1" max="20" step="0.1" value="10">
+          <div class="limits"><span>1×</span><span id="kswTxt">10.0×</span><span>20×</span></div>
+        </div>
+        <div class="control">
+          <label for="coilEff">코일 전압 전달계수 αcoil (추정, %)</label>
           <input id="coilEff" type="range" min="20" max="95" step="1" value="65">
           <div class="limits"><span>20%</span><span id="coilEffTxt">65%</span><span>95%</span></div>
         </div>
@@ -96,15 +101,15 @@
 
       <div class="card">
         <div class="section-title">3 · 정류 · 커패시터</div>
-        <div class="control"><label for="cap">커패시터 용량 (nF)</label><input id="cap" type="number" min="0.01" max="1000" step="0.1" value="1"></div>
-        <div class="control"><label for="capRating">커패시터 정격 (kV)</label><input id="capRating" type="number" min="0.1" max="100" step="0.5" value="15"></div>
+        <div class="control"><label for="cap">커패시터 1개 용량 (nF)</label><input id="cap" type="number" min="0.01" max="1000" step="0.01" value="1"></div>
+        <div class="control"><label for="capRating">커패시터 1개 정격 (kV)</label><input id="capRating" type="number" min="0.1" max="100" step="0.1" value="20"></div>
         <div class="control">
-          <label for="stages">배전압 단수</label>
-          <input id="stages" type="range" min="1" max="8" step="1" value="4">
-          <div class="limits"><span>1</span><span><b id="stagesTxt">4</b>단</span><span>8</span></div>
+          <label for="capCount">CW 커패시터 개수</label>
+          <select id="capCount"><option value="2">2개</option><option value="4" selected>4개</option><option value="6">6개</option><option value="8">8개</option><option value="10">10개</option><option value="12">12개</option><option value="14">14개</option><option value="16">16개</option></select>
+          <div class="note" aria-live="polite">CW <b id="stagesTxt">2</b>단 (자동) · 1단 = C 2개 + D 2개</div>
         </div>
         <div class="control">
-          <label for="rectEff">2차단 유효 전달계수 (%)</label>
+          <label for="rectEff">CW 전압 전달계수 αCW (추정, %)</label>
           <input id="rectEff" type="range" min="20" max="95" step="1" value="70">
           <div class="limits"><span>20%</span><span id="rectEffTxt">70%</span><span>95%</span></div>
         </div>
@@ -159,11 +164,14 @@
   <div class="grid3">
     <section class="panel">
       <div class="section-title">전기 출력</div>
-      <div class="metric"><span class="k">권선비</span><span id="ratio" class="v"></span></div>
-      <div class="metric"><span class="k">이상적 코일 출력</span><span id="idealCoil" class="v"></span></div>
-      <div class="metric"><span class="k">손실 반영 1차 출력</span><span id="stage1" class="v"></span></div>
-      <div class="metric"><span class="k">최종 HV 출력</span><span id="vout" class="v big"></span></div>
-      <div class="metric"><span class="k">커패시터 에너지</span><span id="energy" class="v"></span></div>
+      <div class="metric"><span class="k">권선비 Np : Ns</span><span id="ratio" class="v"></span></div>
+      <div class="metric"><span class="k">권선비만 적용한 기준 Vin × Ns/Np</span><span id="idealCoil" class="v"></span></div>
+      <div class="metric"><span class="k">추정 코일 피크 Vpk</span><span id="stage1" class="v"></span></div>
+      <div class="metric"><span class="k">CW 이상적 무부하 출력</span><span id="cwIdeal" class="v"></span></div>
+      <div class="metric"><span class="k">보정 HV 출력 (부하해석 전)</span><span id="vout" class="v big"></span></div>
+      <div class="metric"><span class="k">유효 HV 승압비 VHV / Vin</span><span id="effectiveGain" class="v"></span></div>
+      <div class="metric"><span class="k">CW 전체 저장 에너지 (이상적 무부하)</span><span id="energy" class="v"></span></div>
+      <div id="equations" class="note" style="margin-top:12px;overflow-wrap:anywhere"></div>
     </section>
     <section class="panel">
       <div class="section-title">코로나 / 이온풍 판정</div>
@@ -246,8 +254,8 @@
     <div class="note" style="margin-bottom:10px">브라우저를 새로고침하면 초기화됩니다. CSV로 내보내면 팀 기록용으로 저장할 수 있습니다.</div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>#</th><th>Vin</th><th>I limit</th><th>Np</th><th>Ns</th><th>C</th><th>Stages</th><th>Gap</th><th>HV Out</th><th>Corona</th><th>Thrust</th><th>Wind</th></tr></thead>
-        <tbody id="savedBody"><tr><td colspan="12" class="note">아직 저장된 조건이 없습니다.</td></tr></tbody>
+        <thead><tr><th>#</th><th>Vin</th><th>I limit</th><th>Np</th><th>Ns</th><th>Ksw 추정</th><th>C / 개</th><th>C 개수</th><th>CW 단수</th><th>Gap</th><th>추정 HV</th><th>Corona</th><th>Thrust</th><th>Wind</th></tr></thead>
+        <tbody id="savedBody"><tr><td colspan="14" class="note">아직 저장된 조건이 없습니다.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -257,20 +265,31 @@
     이 앱은 실험 조건 비교용 근사 모델입니다. 실제 DC→고전압 승압에는 내부 스위칭 회로가 필요하며,
     실제 출력은 코어 포화, 누설 인덕턴스, 절연, 부하, 습도, 전극 표면 상태 등에 따라 달라질 수 있습니다.
     코로나·추력·풍속 값은 절대 예측값보다는 상대 비교용으로 사용하고, 실제 측정값으로 보정하는 것을 권장합니다.
+    Ksw·αcoil·αCW는 실측 사양이나 전력 효율이 아닌 전압 모델의 추정 계수입니다.
+    Vpk는 대칭 AC 등가 피크(입력 전압 스윙의 절반)로 가정하며, 실제 비대칭 플라이백 파형에는 그대로 적용되지 않을 수 있습니다.
+    C 2개와 D 2개를 한 단으로 하는 반파 CW 연결을 가정합니다. 단순 직렬·병렬 연결에는 이 단수 규칙을 적용하지 않습니다.
+    주파수·듀티·리플·부하 전압강하는 계산하지 않으므로 용량 C는 현재 저장 에너지 계산에만 반영됩니다.
+    코로나 전류는 입력 전력 한도로 제한한 비교값이며, 제한이 걸리면 HV와 전류를 동시에 유지할 수 있다는 뜻이 아닙니다.
+    <p class="danger"><strong>고전압 주의:</strong> 출력과 커패시터 잔류 전하는 감전·아크 위험이 있습니다. 이 화면의 정격·전계 표시는 안전 판정이 아닙니다.
+    입력 0–15 V 조절 범위는 실제 모듈의 허용 입력 범위를 뜻하지 않습니다. 실물 사양과 절연·방전 상태를 별도로 확인해야 합니다.</p>
   </section>
 
-  <div class="footer">ALPHA Project · HV Converter & Ion Wind Simulator · v0.1</div>
+  <div class="footer">ALPHA Project · HV Converter & Ion Wind Simulator · v0.2 · 추정 모델</div>
 </div>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const defaults = {vin:3.7, ilim:1.5, np:10, ns:1000, coilEff:65, cap:1, capRating:15, stages:4, rectEff:70, emitterType:'wire', radius:0.10, gap:30, area:100, k:1};
+  const defaults = {vin:3.7, ilim:1.5, np:1, ns:100, ksw:10, coilEff:65, cap:1, capRating:20, capCount:4, rectEff:70, emitterType:'wire', radius:0.10, gap:30, area:100, k:1};
   const saved = [];
   let lastResult = null;
 
   const clamp = (v,a,b,f)=>Number.isFinite(v)?Math.min(b,Math.max(a,v)):f;
-  const fmtV = v => v >= 1000 ? (v/1000).toFixed(v>=10000?1:2)+' kV' : v.toFixed(v>=100?1:2)+' V';
+  const fmtV = v => {
+    const scaled=v>=1000?v/1000:v;
+    const digits=v>=1000?(v>=10000?1:2):(v>=100?1:2);
+    return (Math.round((scaled+Number.EPSILON)*10**digits)/10**digits).toFixed(digits)+(v>=1000?' kV':' V');
+  };
   const fmtE = j => j>=1 ? j.toFixed(2)+' J' : j>=0.001 ? (j*1000).toFixed(2)+' mJ' : (j*1e6).toFixed(2)+' µJ';
 
   function sync(rangeId, numId, decimals){
@@ -288,15 +307,18 @@
   }
 
   function read(){
+    const capCount=2*Math.round(clamp(parseFloat($('capCount').value),2,16,4)/2);
     return {
       vin:clamp(parseFloat($('vin').value),0,15,3.7),
       ilim:clamp(parseFloat($('ilim').value),0,8,1.5),
-      np:clamp(parseFloat($('np').value),1,1000,10),
-      ns:clamp(parseFloat($('ns').value),1,10000,1000),
+      np:Math.round(clamp(parseFloat($('np').value),1,1000,1)),
+      ns:Math.round(clamp(parseFloat($('ns').value),1,10000,100)),
+      ksw:clamp(parseFloat($('ksw').value),1,20,10),
       coilEff:clamp(parseFloat($('coilEff').value),20,95,65)/100,
       cap:clamp(parseFloat($('cap').value),0.01,1000,1),
-      capRating:clamp(parseFloat($('capRating').value),0.1,100,15),
-      stages:Math.round(clamp(parseFloat($('stages').value),1,8,4)),
+      capRating:clamp(parseFloat($('capRating').value),0.1,100,20),
+      capCount,
+      stages:capCount/2,
       rectEff:clamp(parseFloat($('rectEff').value),20,95,70)/100,
       type:$('emitterType').value,
       radius:clamp(parseFloat($('radius').value),0.01,5,.1),
@@ -309,8 +331,9 @@
   function drawStages(n){
     const g=$('multStages'); g.innerHTML='';
     const ns='http://www.w3.org/2000/svg';
-    for(let i=0;i<n;i++){
-      const x=605+i*28, y=155+(i%2)*30;
+    // Two capacitor symbols per stage; conceptual placement, not wiring.
+    for(let i=0;i<2*n;i++){
+      const x=605+Math.floor(i/2)*28, y=145+(i%2)*60;
       const l=document.createElementNS(ns,'line'); l.setAttribute('x1',x);l.setAttribute('y1',y);l.setAttribute('x2',x+20);l.setAttribute('y2',y);l.setAttribute('stroke','#e9eef4');l.setAttribute('stroke-width','2');g.appendChild(l);
       const c1=document.createElementNS(ns,'line'); c1.setAttribute('x1',x+7);c1.setAttribute('y1',y+12);c1.setAttribute('x2',x+7);c1.setAttribute('y2',y+32);c1.setAttribute('stroke','#d2a8ff');c1.setAttribute('stroke-width','3');g.appendChild(c1);
       const c2=document.createElementNS(ns,'line'); c2.setAttribute('x1',x+14);c2.setAttribute('y1',y+12);c2.setAttribute('x2',x+14);c2.setAttribute('y2',y+32);c2.setAttribute('stroke','#d2a8ff');c2.setAttribute('stroke-width','3');g.appendChild(c2);
@@ -321,14 +344,17 @@
     const s=read();
     const ratio=s.ns/s.np;
     const ideal=s.vin*ratio;
-    const stage1=ideal*s.coilEff;
-    const capSat=s.cap/(s.cap+0.65*s.stages);
-    const stageGain=1+(s.stages-1)*1.45*capSat;
-    const vout=stage1*stageGain*s.rectEff;
     const pin=s.vin*s.ilim;
-    const energy=.5*(s.cap*1e-9)*vout*vout;
-    const perStageKV=(vout/Math.max(1,s.stages))/1000;
-    const capSafe=perStageKV<=s.capRating;
+    // Voltage calibration factors are not power efficiencies.
+    // Zero available input power means no sustained HV in this steady-state model.
+    const stage1=pin>0?ideal*s.ksw*s.coilEff:0;
+    const cwIdeal=2*s.stages*stage1;
+    const vout=cwIdeal*s.rectEff;
+    const effectiveGain=s.vin>0?vout/s.vin:0;
+    // Ideal half-wave CW: first pumping capacitor at Vpk, others at 2 Vpk.
+    const capStress=2*stage1;
+    const energy=.5*(s.cap*1e-9)*(stage1*stage1+(s.capCount-1)*capStress*capStress);
+    const capSafe=capStress<=s.capRating*1000;
 
     const r=Math.max(1e-6,s.radius/1000);
     const d=Math.max(r*3,s.gap/1000);
@@ -336,7 +362,10 @@
     const onsetField=(s.type==='needle'?3.2e6:3e6)*(1+.04/Math.sqrt(Math.max(r,1e-6)*1000));
     const onset=onsetField*r*Math.log(geom);
     const over=Math.max(0,vout-onset);
-    const coronaI=(s.type==='needle'?1.25:1)*s.k*1.8e-10*over*over/Math.max(d,.005);
+    const rawCoronaI=(s.type==='needle'?1.25:1)*s.k*1.8e-10*over*over/Math.max(d,.005);
+    const powerCurrentLimit=vout>0?pin/vout:0;
+    const coronaI=Math.min(rawCoronaI,powerCurrentLimit);
+    const powerLimited=rawCoronaI>powerCurrentLimit;
     const corona=over>0&&coronaI>1e-9;
     const mu=2e-4;
     const thrust=corona?coronaI*d/mu:0;
@@ -351,11 +380,15 @@
     $('coilEffTxt').textContent=Math.round(s.coilEff*100)+'%';
     $('rectEffTxt').textContent=Math.round(s.rectEff*100)+'%';
     $('stagesTxt').textContent=s.stages;
+    $('kswTxt').textContent=s.ksw.toFixed(1)+'×';
     $('kTxt').textContent=s.k.toFixed(2)+'×';
 
     $('ratio').textContent='1 : '+ratio.toFixed(1);
     $('idealCoil').textContent=fmtV(ideal);
     $('stage1').textContent=fmtV(stage1);
+    $('cwIdeal').textContent=fmtV(cwIdeal);
+    $('effectiveGain').textContent=effectiveGain.toFixed(1)+' ×';
+    $('equations').textContent='n = '+s.capCount+'/2 = '+s.stages+'; Vpk ≈ Vin × Ksw × (Ns/Np) × αcoil; VCW,ideal ≈ 2nVpk; VHV ≈ VCW,ideal × αCW. 전원 미공급 시 지속 출력 0 V.';
     $('vout').textContent=fmtV(vout);
     $('energy').textContent=fmtE(energy);
     $('onset').textContent=fmtV(onset);
@@ -368,18 +401,18 @@
     $('efield').textContent=(avgField/1e6).toFixed(2)+' MV/m';
 
     const stateText=arcRisk?'⚠ 높은 평균 전계 — 아크 위험 구간':corona?'✓ 코로나 방전 조건 충족 · 이온풍 가능':'코로나 개시전압 미만 · 이온풍 조건 미충족';
-    $('ehdState').textContent=stateText;
-    $('capCheck').textContent=capSafe?'✓ 커패시터: 단계당 추정 전압이 설정 정격 이내':'⚠ 커패시터: 단계당 추정 전압이 설정 정격 초과';
+    $('ehdState').textContent=stateText+(powerLimited?' · 입력 전력 상한 적용: 실제 HV는 부하로 떨어질 수 있음':'');
+    $('capCheck').textContent=(capSafe?'커패시터: 이상적 최대 소자 전압이 설정 정격 이내':'⚠ 커패시터: 이상적 최대 소자 전압이 설정 정격 초과')+' · 2Vpk = '+fmtV(capStress)+' / 정격 '+s.capRating+' kV. 과도전압·리플·디레이팅 미포함. 안전 판정 아님.';
     $('arcCheck').textContent=arcRisk?'⚠ 평균 전계가 높은 영역입니다. 실제 아크 여부는 형상과 환경에 따라 달라집니다.':corona?'✓ 코로나 영역 추정: 이온풍 발생 가능':'○ 코로나 개시 이전 영역 추정';
     $('status').textContent=arcRisk?'아크 위험 추정':corona?'ION WIND':'코로나 미발생';
     $('status').className='status '+(arcRisk?'danger':corona?'good':'');
 
     $('svgVin').textContent=s.vin.toFixed(2)+' V';
     $('svgIin').textContent='I limit '+s.ilim.toFixed(2)+' A';
-    $('svgV1').textContent=fmtV(stage1);
-    $('svgRatio').textContent='1 : '+ratio.toFixed(1);
+    $('svgV1').textContent=fmtV(stage1)+' pk';
+    $('svgRatio').textContent='1:'+ratio.toFixed(1)+' · Ksw '+s.ksw.toFixed(1);
     $('svgVout').textContent=fmtV(vout);
-    $('svgStage').textContent=s.stages+'단';
+    $('svgStage').textContent='C '+s.capCount+'개 · CW '+s.stages+'단';
     $('svgCorona').textContent=arcRisk?'ARC RISK':corona?'ION WIND':'NO CORONA';
     $('svgThrust').textContent='Thrust '+(thrust*1000).toFixed(2)+' mN';
     $('svgWind').textContent='Wind '+wind.toFixed(2)+' m/s';
@@ -388,8 +421,8 @@
     $('drawIin').textContent=s.ilim.toFixed(2)+' A limit';
     $('drawNp').textContent='Np '+Math.round(s.np);
     $('drawNs').textContent='Ns '+Math.round(s.ns);
-    $('drawV1').textContent=fmtV(stage1);
-    $('drawCap').textContent='C = '+s.cap.toFixed(2)+' nF · '+s.stages+' stages';
+    $('drawV1').textContent=fmtV(stage1)+' pk · Ksw '+s.ksw.toFixed(1)+' (추정)';
+    $('drawCap').textContent=s.cap.toFixed(2)+' nF × '+s.capCount+'개 · CW '+s.stages+'단';
     $('drawVout').textContent=fmtV(vout);
     $('drawGap').textContent='Gap '+Math.round(s.gap)+' mm';
     $('drawIonState').textContent=arcRisk?'ARC RISK':corona?'ION WIND ACTIVE':'NO CORONA';
@@ -399,15 +432,15 @@
     const cx=1020+Math.min(150,s.gap*.75); $('collectorLine').setAttribute('x1',cx);$('collectorLine').setAttribute('x2',cx);
     drawStages(s.stages);
 
-    lastResult={...s,ratio,ideal,stage1,vout,pin,energy,onset,onsetRatio,coronaI,corona,thrust,gf,wind,avgField,arcRisk,capSafe};
+    lastResult={...s,ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe};
   }
 
   function renderSaved(){
     const body=$('savedBody'); body.innerHTML='';
-    if(saved.length===0){body.innerHTML='<tr><td colspan="12" class="note">아직 저장된 조건이 없습니다.</td></tr>';return;}
+    if(saved.length===0){body.innerHTML='<tr><td colspan="14" class="note">아직 저장된 조건이 없습니다.</td></tr>';return;}
     saved.forEach((r,i)=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${i+1}</td><td>${r.vin.toFixed(2)} V</td><td>${r.ilim.toFixed(2)} A</td><td>${Math.round(r.np)}</td><td>${Math.round(r.ns)}</td><td>${r.cap.toFixed(2)} nF</td><td>${r.stages}</td><td>${Math.round(r.gap)} mm</td><td>${fmtV(r.vout)}</td><td>${r.corona?'YES':'NO'}</td><td>${(r.thrust*1000).toFixed(2)} mN</td><td>${r.wind.toFixed(2)} m/s</td>`;
+      tr.innerHTML=`<td>${i+1}</td><td>${r.vin.toFixed(2)} V</td><td>${r.ilim.toFixed(2)} A</td><td>${Math.round(r.np)}</td><td>${Math.round(r.ns)}</td><td>${r.ksw.toFixed(1)}×</td><td>${r.cap.toFixed(2)} nF</td><td>${r.capCount}</td><td>${r.stages}</td><td>${Math.round(r.gap)} mm</td><td>${fmtV(r.vout)}</td><td>${r.corona?'YES':'NO'}</td><td>${(r.thrust*1000).toFixed(2)} mN</td><td>${r.wind.toFixed(2)} m/s</td>`;
       body.appendChild(tr);
     });
   }
@@ -420,20 +453,32 @@
       `Vin: ${r.vin.toFixed(2)} V`,
       `Current Limit: ${r.ilim.toFixed(2)} A`,
       `Np / Ns: ${Math.round(r.np)} / ${Math.round(r.ns)}`,
+      `Ksw (estimate): ${r.ksw.toFixed(1)}`,
+      `Voltage factors (estimates): coil ${r.coilEff}, CW ${r.rectEff}`,
+      `Turns ratio Ns/Np: ${r.ratio}`,
+      `Effective HV gain: ${r.effectiveGain.toFixed(1)}`,
+      `Coil peak estimate: ${fmtV(r.stage1)}`,
+      `CW ideal no-load: ${fmtV(r.cwIdeal)}`,
       `Capacitance: ${r.cap.toFixed(2)} nF`,
-      `Stages: ${r.stages}`,
+      `Capacitors: ${r.capCount}; rating per capacitor: ${r.capRating} kV`,
+      `CW stages (C count / 2): ${r.stages}`,
       `Gap: ${Math.round(r.gap)} mm`,
-      `HV Output: ${fmtV(r.vout)}`,
+      `HV Output (calibrated estimate, load sag not solved): ${fmtV(r.vout)}`,
       `Corona: ${r.corona?'YES':'NO'}`,
       `Corona Current: ${r.coronaI<.001?(r.coronaI*1e6).toFixed(1)+' µA':(r.coronaI*1000).toFixed(2)+' mA'}`,
       `Thrust: ${(r.thrust*1000).toFixed(2)} mN`,
       `Wind: ${r.wind.toFixed(2)} m/s`,
-      `Arc Risk Estimate: ${r.arcRisk?'YES':'NO'}`
+      `Input power cap active: ${r.powerLimited?'YES':'NO'}`,
+      `Arc Risk Estimate: ${r.arcRisk?'YES':'NO'}`,
+      'Estimate only. HV and stored charge are hazardous; this is not a safety assessment.'
     ].join('\n');
   }
 
   sync('vin','vinNum',2); sync('ilim','ilimNum',2); sync('radius','radiusNum',2); sync('gap','gapNum',0); sync('area','areaNum',0);
-  ['np','ns','coilEff','cap','capRating','stages','rectEff','emitterType','k'].forEach(id=>{$(id).addEventListener('input',update);$(id).addEventListener('change',update);});
+  ['np','ns','ksw','coilEff','cap','capRating','capCount','rectEff','emitterType','k'].forEach(id=>{$(id).addEventListener('input',update);$(id).addEventListener('change',update);});
+  ['np','ns','cap','capRating'].forEach(id=>$(id).addEventListener('change',()=>{
+    $(id).value=read()[id];update();
+  }));
 
   $('resetBtn').addEventListener('click',()=>{
     Object.entries(defaults).forEach(([id,v])=>{const el=$(id);if(el)el.value=v;});
@@ -453,9 +498,9 @@
   $('csvBtn').addEventListener('click',()=>{
     const rows = saved.length ? saved : (lastResult?[lastResult]:[]);
     if(!rows.length) return;
-    const header=['No','Vin_V','CurrentLimit_A','Np','Ns','CoilEff','Cap_nF','CapRating_kV','Stages','RectEff','EmitterType','EmitterRadius_mm','Gap_mm','Area_cm2','CoronaCoeff','HVOut_V','Corona','CoronaCurrent_A','Thrust_N','Wind_mps','AvgField_Vpm','ArcRisk'];
+    const header=['No','Vin_V','CurrentLimit_A','Np','Ns','Ksw_estimate','CoilVoltageFactor_estimate','Cap_nF','CapRating_kV','CapCount','CWStages','CWVoltageFactor_estimate','EmitterType','EmitterRadius_mm','Gap_mm','Area_cm2','CoronaCoeff','CoilPeak_V','CWIdealNoLoad_V','EffectiveHVGain','HVOut_V','Corona','CoronaCurrent_A','Thrust_N','Wind_mps','AvgField_Vpm','ArcRisk','InputPowerLimited','CapMaxIdeal_V','CWStoredEnergyIdeal_J'];
     const csv=[header.join(',')].concat(rows.map((r,i)=>[
-      i+1,r.vin,r.ilim,r.np,r.ns,r.coilEff,r.cap,r.capRating,r.stages,r.rectEff,r.type,r.radius,r.gap,r.area,r.k,r.vout,r.corona,r.coronaI,r.thrust,r.wind,r.avgField,r.arcRisk
+      i+1,r.vin,r.ilim,r.np,r.ns,r.ksw,r.coilEff,r.cap,r.capRating,r.capCount,r.stages,r.rectEff,r.type,r.radius,r.gap,r.area,r.k,r.stage1,r.cwIdeal,r.effectiveGain,r.vout,r.corona,r.coronaI,r.thrust,r.wind,r.avgField,r.arcRisk,r.powerLimited,r.capStress,r.energy
     ].join(','))).join('\n');
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='alpha_hv_ionwind_results.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),500);

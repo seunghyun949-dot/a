@@ -1,86 +1,79 @@
-# MODEL NOTES
+# MODEL NOTES · v0.2
 
-## 1. 전체 흐름
+## HV chain and assumptions
 
-DC Power Supply
-→ Coil / Transformer Step-up
-→ Rectifier / Capacitor Multiplier
-→ HV Output
-→ Corona / EHD
-→ Estimated Thrust / Wind Velocity
+DC → switching / transformer → half-wave Cockcroft–Walton (CW) → estimated HV → EHD.
+This is a calibrated comparison model, not SPICE or a switching circuit simulation.
+The defaults are assumptions, not measurements of the user's module.
 
-## 2. 1차 승압
+- Turns ratio r = Ns / Np; default 1:100.
+- Switching/flyback coefficient Ksw = 10 (adjustable estimate, 1–20).
+- Coil voltage factor αcoil = 0.65; CW voltage factor αCW = 0.70.
+- These factors describe voltage, NOT power conversion efficiency.
+- Capacitors: 1 nF / 20 kV × 4; one full CW stage uses two capacitors and two diodes.
 
-기본 권선비:
+## Equations
 
-V_secondary / V_primary ≈ Ns / Np
+    n = capacitorCount / 2
+    reference voltage = Vin × r
+    Vpk = Vin × Ksw × r × αcoil
+    VCW,ideal = 2 × n × Vpk
+    VHV,estimate = VCW,ideal × αCW
+    effective HV gain = VHV,estimate / Vin
 
-현재 앱에서는 여기에 사용자가 조절하는 `coil efficiency`를 곱해
-손실을 단순 반영합니다.
+Vpk is an equivalent symmetric AC peak (half the input voltage swing), not RMS.
+An asymmetric flyback pulse is not automatically equivalent to this waveform.
+Ksw absorbs unmodelled switching behavior; it does not solve inductance, duty,
+frequency, saturation or regulation. DC times turns ratio alone does not describe a working transformer.
+Only even capacitor counts 2–16 are offered, corresponding to 1–8 full stages.
+The count rule applies to the assumed CW circuit, not arbitrary series or parallel connections.
 
-## 3. 정류 / 커패시터 승압
+Default: 3.7 × 10 × 100 × 0.65 = 2405 Vpk; 9620 V ideal CW; 6734 V corrected HV.
+With Ksw 8: 1924 Vpk; 7696 V ideal CW; 5387.2 V corrected HV.
 
-배전압 단수와 커패시터 용량에 따른 효과를 단순화한 경험적 gain을 사용합니다.
-이는 Cockcroft-Walton 회로의 정확한 transient 해석을 대체하지 않습니다.
+The old empirical capacitance-based voltage gain is removed. Without frequency and load inputs,
+C cannot determine a defensible voltage sag. C changes stored energy, not the HV estimate.
+Ripple, charging time, load sag, diode drop and leakage remain unmodelled.
+Corrected HV is NOT a solved loaded operating voltage. Fixed αCW is only a calibration.
 
-## 4. 코로나 개시
+## Power and EHD
 
-전극 반경과 간격을 사용한 단순 전계 기반 모델을 사용합니다.
-실제 코로나 개시는 전극 곡률, 표면 거칠기, 습도, 압력, 극성 등에 따라 달라집니다.
+Pin,max = Vin × Ilimit. Zero voltage or zero current limit produces zero sustained generated HV.
+This is steady state: stored residual charge on a real disconnected circuit does not disappear.
+The original empirical corona onset and current law are retained:
+Iraw ∝ (VHV − Vonset)² / gap, with zero current below onset.
+Iestimate = min(Iraw, Pin,max / VHV), or zero if VHV is zero.
+This optimistic 100%-power upper bound prevents estimated output electrical power exceeding input capacity.
+It does not model actual input current or losses or establish a self-consistent loaded operating point.
+The app flags this bound when active. Real loaded HV and current may both be lower.
+F ≈ I d / μ and v ≈ sqrt(2F / (ρA)), with μ = 2e-4 and ρ = 1.204, remain comparison estimates.
+The average-field arc flag is coarse; its absence does not establish safety.
 
-## 5. 코로나 전류
+## Capacitor voltage and energy
 
-간이 경험식:
+In this ideal half-wave CW convention, the first pumping capacitor holds Vpk;
+other capacitors hold approximately 2Vpk at no load.
 
-I ∝ (V - V0)^2
+    maximum ideal capacitor stress = 2Vpk
+    ideal total stored energy = 0.5 × C × [Vpk² + (capacitorCount − 1) × (2Vpk)²]
 
-형태를 사용하며 `코로나 보정계수`로 실험값에 맞출 수 있습니다.
+The voltage check uses ideal source peak before αCW, not final output divided by stages.
+Energy is the ideal no-load sum over capacitors, not one capacitor across the entire output.
+Transients, ripple, derating, tolerances and discharge behavior are not included.
+Ratings do not clamp calculated voltage. A displayed value within rating is NOT a safety assessment.
 
-## 6. EHD 추력
+## Safety and calibration
 
-간이식:
+HV and residual charge present shock and arc hazards. Model input range 0–15 V does not
+establish the permissible physical module input. Check actual ratings, insulation and residual charge separately.
+Use measured waveform swing, loaded HV, current, frequency, duty and geometry to calibrate.
+Saved snapshots, copy and CSV preserve Ksw, turns ratio, effective gain, capacitor count,
+CW stages and ideal/corrected voltages. Refresh clears snapshots; CSV preserves them.
 
-F ≈ I d / μ
+## References
 
-- F: 추력
-- I: 코로나 전류
-- d: 전극 간격
-- μ: 이온 이동도
+- [TI: Flyback converter topology](https://www.ti.com/document-viewer/lit/html/SLVAFK6/GUID-0B3C241B-688B-44BB-847B-682F017BB8A9) — duty and turns ratio both influence conversion.
+- [In Situ High-Voltage Generation with a CW Multiplier (2025)](https://academic.oup.com/ptep/article/2025/5/053H03/8128270) — ideal 2NU output and nonideal loading.
+- [Spellman: Capacitor Charging and HV Power Supplies](https://www.spellmanhv.com/en/Technical-Resources/High-Voltage-Reference-Manual/AN-26-capacitor-charging-and-spellman-high-voltage-power-supplies) — CW networks and stored energy.
 
-## 7. 등가 평균 풍속
-
-간이 운동량 관계:
-
-F ≈ 1/2 ρ A v²
-
-에서 v를 역산합니다.
-
-따라서 화면의 풍속은 실제 국소 제트 속도가 아니라
-유효 유동 면적 전체에 대한 등가 평균 풍속으로 해석해야 합니다.
-
-## 8. 사용 목적
-
-- 설계 변수 민감도 비교
-- 실험 조건 사전 탐색
-- 팀 내 조건 공유
-- 측정값과 이론값 비교
-- 후속 보정 모델 개발
-
-## 9. 권장 다음 단계
-
-실험 데이터가 확보되면 CSV 기준으로 다음 값을 기록하세요.
-
-- Vin
-- Current limit
-- Np / Ns
-- Capacitance
-- Multiplier stage
-- Gap
-- Emitter radius
-- Measured HV output
-- Measured corona current
-- Measured wind velocity
-- Measured thrust
-
-이 데이터를 이용해 현재 보정계수를 피팅하면
-단순 이론 모델에서 프로젝트 전용 반경험 모델(semi-empirical model)로 발전시킬 수 있습니다.
+Ksw and voltage calibration defaults are arbitrary estimates, not specifications from these sources.

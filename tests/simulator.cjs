@@ -1,0 +1,65 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+const { pathToFileURL } = require('node:url');
+const path = require('node:path');
+
+test('HV chain, zero power, capacitor stress and saved exports', async () => {
+  const browser = await chromium.launch({headless:true, channel:process.env.BROWSER_CHANNEL || 'msedge'});
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(pathToFileURL(path.join(__dirname,'../index.html')).href);
+    const value = id => page.locator('#'+id).textContent();
+    const set = async (id,v) => page.locator('#'+id).evaluate((el,v)=>{
+      el.value=String(v); el.dispatchEvent(new Event('input',{bubbles:true}));
+      el.dispatchEvent(new Event('change',{bubbles:true}));
+    },v);
+    assert.equal(await value('stage1'),'2.41 kV');
+    assert.equal(await value('stagesTxt'),'2');
+    assert.equal(await value('cwIdeal'),'9.62 kV');
+    assert.equal(await value('vout'),'6.73 kV');
+    assert.equal(await value('effectiveGain'),'1820.0 ×');
+    await set('ksw',1);
+    assert.equal(await value('stage1'),'240.5 V');
+    assert.equal(await value('vout'),'673.4 V');
+    await set('capCount',8);
+    assert.equal(await value('stagesTxt'),'4');
+    assert.equal(await value('vout'),'1.35 kV');
+    await set('ilim',0);
+    assert.equal(await value('vout'),'0.00 V');
+    assert.equal(await value('coronaCurrent'),'0.0 µA');
+    assert.equal(await value('thrust'),'0.00 mN');
+    await page.locator('#resetBtn').click();
+    await set('vin',0);
+    assert.equal(await value('vout'),'0.00 V');
+    assert.equal(await value('effectiveGain'),'0.0 ×');
+    await page.locator('#resetBtn').click();
+    await set('capRating',4);
+    assert.match(await value('capCheck'),/정격 초과/);
+    await set('rectEff',20);
+    assert.match(await value('capCheck'),/정격 초과/);
+    await page.locator('#resetBtn').click();
+    await page.locator('#savePresetBtn').click();
+    await set('ksw',8);
+    await page.locator('#savePresetBtn').click();
+    assert.equal(await page.locator('#savedBody tr').count(),2);
+    const downloadPromise=page.waitForEvent('download');
+    await page.locator('#csvBtn').click();
+    const download=await downloadPromise;
+    const fs=require('node:fs/promises');
+    const csv=await fs.readFile(await download.path(),'utf8');
+    const [header,...rows]=csv.trim().split('\n').map(line=>line.split(','));
+    for (const row of rows) assert.equal(row.length,header.length);
+    assert.equal(rows[0][header.indexOf('Ksw_estimate')],'10');
+    assert.equal(rows[1][header.indexOf('Ksw_estimate')],'8');
+    assert.equal(rows[0][header.indexOf('CapCount')],'4');
+    assert.equal(rows[0][header.indexOf('CWStages')],'2');
+    assert.equal(Number(rows[0][header.indexOf('HVOut_V')]),6734);
+    assert(Number(rows[0][header.indexOf('CoronaCurrent_A')])*6734<=5.55+1e-9);
+    for (const [id,v] of [['np',0],['ns',-1],['cap',0],['capRating',0]]) await set(id,v);
+    assert.doesNotMatch(await page.locator('body').innerText(),/NaN|Infinity/);
+    assert.deepEqual(errors,[]);
+  } finally { await browser.close(); }
+});
