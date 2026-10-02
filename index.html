@@ -249,6 +249,25 @@
     </div>
   </section>
 
+  <section class="panel" id="explorer">
+    <div class="section-title">예상 풍속 조건 탐색</div>
+    <p class="note">현재 모델에서 등가 평균 풍속이 높은 조합을 비교합니다. 면적·전류 제한·권선·커패시터·Ksw·보정계수·에미터 형태는 현재 설정으로 고정합니다. 딥러닝이나 실측 최적화가 아니며, 실제 특정 거리의 풍속을 예측하지 않습니다.</p>
+    <div class="grid3">
+      <div class="control"><label for="searchVinMin">탐색 입력 전압 최소 (V)</label><input id="searchVinMin" type="number" min="0" max="15" step="0.01" value="0.5"><label for="searchVinMax">최대 (V)</label><input id="searchVinMax" type="number" min="0" max="15" step="0.01" value="3.7"></div>
+      <div class="control"><label for="searchGapMin">탐색 간격 최소 (mm)</label><input id="searchGapMin" type="number" min="1" max="200" step="1" value="10"><label for="searchGapMax">최대 (mm)</label><input id="searchGapMax" type="number" min="1" max="200" step="1" value="60"></div>
+      <div class="control"><label for="searchRadiusMin">탐색 반경 최소 (mm)</label><input id="searchRadiusMin" type="number" min="0.01" max="5" step="0.01" value="0.05"><label for="searchRadiusMax">최대 (mm)</label><input id="searchRadiusMax" type="number" min="0.01" max="5" step="0.01" value="0.3"></div>
+    </div>
+    <div class="grid2">
+      <div class="control"><label for="searchHVMax">모델 HV 상한 (kV)</label><input id="searchHVMax" type="number" min="0" max="1000" step="0.1" value="10"></div>
+      <div class="control"><label for="searchFieldMax">모델 평균 전계 상한 (MV/m)</label><input id="searchFieldMax" type="number" min="0" max="2.5" step="0.01" value="0.5"></div>
+    </div>
+    <label><input id="includeLimited" type="checkbox"> 전력 제한 후보도 비교에 포함 (풍속은 낙관적 상한 · 실물 추천 아님)</label>
+    <p class="note">기본 범위와 상한은 비교용 예시이며 부품의 허용값이 아닙니다. 코로나 미발생, 정격 초과, 모델 아크 경고, 간격 ≤ 반경의 3배인 후보는 제외합니다. 이 필터를 통과해도 안전을 보증하지 않습니다.</p>
+    <button id="exploreBtn" type="button">예상 풍속 높은 조건 찾기</button>
+    <p id="exploreSummary" class="note" role="status">범위를 확인한 뒤 탐색하세요.</p>
+    <div class="tablewrap"><table><thead><tr><th>순위</th><th>입력 V</th><th>간격 mm</th><th>반경 mm</th><th>추정 HV</th><th>추정 풍속</th><th>현재 대비</th><th>모델 상태</th><th>선택</th></tr></thead><tbody id="exploreBody"></tbody></table></div>
+  </section>
+
   <section class="panel">
     <div class="section-title">저장된 실험 조건</div>
     <div class="note" style="margin-bottom:10px">브라우저를 새로고침하면 초기화됩니다. CSV로 내보내면 팀 기록용으로 저장할 수 있습니다.</div>
@@ -340,8 +359,7 @@
     }
   }
 
-  function update(){
-    const s=read();
+  function calculate(s){
     const ratio=s.ns/s.np;
     const ideal=s.vin*ratio;
     const pin=s.vin*s.ilim;
@@ -375,6 +393,14 @@
     const avgField=vout/d;
     const onsetRatio=onset>0?vout/onset:0;
     const arcRisk=avgField>2.5e6;
+    return {...s,ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe};
+  }
+
+  function update(){
+    const s=read();
+    const result=calculate(s);
+    const {ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe}=result;
+    invalidateExploration();
 
     $('pin').textContent=pin.toFixed(2)+' W';
     $('coilEffTxt').textContent=Math.round(s.coilEff*100)+'%';
@@ -432,8 +458,68 @@
     const cx=1020+Math.min(150,s.gap*.75); $('collectorLine').setAttribute('x1',cx);$('collectorLine').setAttribute('x2',cx);
     drawStages(s.stages);
 
-    lastResult={...s,ratio,ideal,stage1,cwIdeal,effectiveGain,capStress,vout,pin,energy,onset,onsetRatio,coronaI,corona,powerLimited,thrust,gf,wind,avgField,arcRisk,capSafe};
+    lastResult=result;
   }
+
+  function invalidateExploration(){
+    $('exploreBody').replaceChildren();
+    $('exploreSummary').textContent='설정이 바뀌면 다시 탐색하세요. 결과는 실제 풍속·안전 보증값이 아닙니다.';
+  }
+
+  function explore(){
+    invalidateExploration();
+    const base=read(), baseline=calculate(base);
+    const get=id=>{
+      const el=$(id), value=el.valueAsNumber;
+      if(!Number.isFinite(value)||!el.checkValidity()) throw new Error('탐색 범위를 확인하세요. 빈 값·허용 범위 밖·단위에 맞지 않는 값은 사용할 수 없습니다.');
+      return value;
+    };
+    try{
+      const axes=[['Vin','vin',2],['Gap','gap',0],['Radius','radius',2]].map(([label,key,digits])=>{
+        const min=get('search'+label+'Min'),max=get('search'+label+'Max');
+        if(min>max) throw new Error('탐색 범위의 최소값은 최대값보다 클 수 없습니다.');
+        const values=Array.from({length:13},(_,i)=>Number((min+(max-min)*i/12).toFixed(digits)));
+        if(base[key]>=min&&base[key]<=max) values.push(base[key]);
+        return [...new Set(values)].sort((a,b)=>a-b);
+      });
+      const hvMax=get('searchHVMax')*1000, fieldMax=get('searchFieldMax')*1e6;
+      const includeLimited=$('includeLimited').checked;
+      const candidates=[];
+      const excluded={geometry:0,corona:0,limits:0,power:0};
+      let total=0;
+      for(const vin of axes[0]) for(const gap of axes[1]) for(const radius of axes[2]){
+        total++;
+        if(gap<=3*radius){excluded.geometry++;continue;}
+        const r=calculate({...base,vin,gap,radius});
+        if(!r.corona){excluded.corona++;continue;}
+        if(!r.capSafe||r.arcRisk||r.vout>hvMax||r.avgField>fieldMax){excluded.limits++;continue;}
+        if(r.powerLimited&&!includeLimited){excluded.power++;continue;}
+        candidates.push(r);
+      }
+      candidates.sort((a,b)=>b.wind-a.wind||a.vin-b.vin||a.gap-b.gap||a.radius-b.radius);
+      $('exploreSummary').textContent=`${total}개 조합 평가 · 비교 후보 ${candidates.length}개 · 제외: 형상 ${excluded.geometry}, 코로나 없음 ${excluded.corona}, 전압·전계·정격 ${excluded.limits}, 전력 제한 ${excluded.power}. 면적 ${base.area} cm² 고정 · 현재 ${baseline.wind.toFixed(2)} m/s${baseline.powerLimited?' (전력 제한 상한)':''}. 격자 탐색 상위 5개이며 전역 최적값은 아닙니다. 경계값이 반복되면 모델의 단조 경향일 수 있습니다.`;
+      candidates.slice(0,5).forEach((r,i)=>{
+        const tr=document.createElement('tr');
+        tr.dataset.wind=r.wind;
+        const delta=r.wind-baseline.wind;
+        const fields=[i+1,r.vin.toFixed(2),r.gap,r.radius.toFixed(2),fmtV(r.vout),r.wind.toFixed(2)+' m/s',(delta>=0?'+':'')+delta.toFixed(2)+' m/s',r.powerLimited?'전력 제한 상한':'전력 제한 미도달'];
+        fields.forEach(text=>{const td=document.createElement('td');td.textContent=text;tr.appendChild(td);});
+        const cell=document.createElement('td'),button=document.createElement('button');
+        button.type='button';button.textContent='화면에 적용';
+        button.addEventListener('click',()=>{
+          for(const [id,digits] of [['vin',2],['gap',0],['radius',2]]){
+            $(id).value=r[id];$(id+'Num').value=r[id].toFixed(digits);
+          }
+          update();
+          $('exploreSummary').textContent='선택 조건을 시뮬레이터에 적용했습니다. 저장·복사·CSV로 기록할 수 있습니다. 다른 후보를 비교하려면 다시 탐색하세요.';
+        });
+        cell.appendChild(button);tr.appendChild(cell);$('exploreBody').appendChild(tr);
+      });
+    }catch(error){$('exploreSummary').textContent=error.message;}
+  }
+
+  $('exploreBtn').addEventListener('click',explore);
+  document.querySelectorAll('#explorer input').forEach(el=>el.addEventListener('input',invalidateExploration));
 
   function renderSaved(){
     const body=$('savedBody'); body.innerHTML='';

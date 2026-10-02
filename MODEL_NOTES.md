@@ -77,3 +77,26 @@ CW stages and ideal/corrected voltages. Refresh clears snapshots; CSV preserves 
 - [Spellman: Capacitor Charging and HV Power Supplies](https://www.spellmanhv.com/en/Technical-Resources/High-Voltage-Reference-Manual/AN-26-capacitor-charging-and-spellman-high-voltage-power-supplies) — CW networks and stored energy.
 
 Ksw and voltage calibration defaults are arbitrary estimates, not specifications from these sources.
+
+## Model-based wind exploration
+
+The explorer reuses exactly the same calculation as the main simulator. It maximizes the displayed
+equivalent average wind speed over a finite grid of Vin, gap and emitter radius. Each axis uses 13
+equally spaced points rounded to the UI precision, plus the current value if inside the bounds;
+duplicates are removed. There are at most 2744 combinations. Equal bounds yield a single value.
+Ties prefer lower input voltage, then gap, then radius for deterministic presentation.
+
+Area and all other parameters remain fixed: reducing area or tuning a calibration coefficient cannot
+artificially win this search. Candidates without corona, with gap <= 3 × radius, capacitor-rating
+exceedance, the existing arc flag, or user-entered HV/average-field limit exceedance are excluded.
+Power-limited candidates are excluded unless explicitly included as optimistic upper-bound comparisons.
+Exclusion counts follow that order and each excluded candidate is counted only once.
+The limits are illustrative numerical filters, not a physical safety envelope or module specifications.
+
+The top five are comparisons, not experimental instructions. The delta is against current displayed
+wind; when that baseline is power-limited its upper-bound status is shown. A negative delta is possible.
+No passing candidates is a valid result. The explorer never relaxes the limits automatically.
+Changes to simulator settings or search inputs invalidate prior results. Applying a result updates only
+the three searched controls, and the normal save/copy/CSV workflow records the resulting configuration.
+This is not deep learning, a continuous/global optimum, or a measurement at a particular distance.
+Boundary optima may expose monotonic behavior of the existing empirical model, not a physical optimum.
